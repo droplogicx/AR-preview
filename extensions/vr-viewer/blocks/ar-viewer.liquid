@@ -2,20 +2,19 @@
 
   {% assign img    = product.featured_image | img_url: 'master' %}
   {% assign title  = product.title | escape %}
-  {% assign app    = block.settings.backend_url %}
   {% assign width  = product.metafields.ar_viewer.width_cm  | default: '60' %}
   {% assign height = product.metafields.ar_viewer.height_cm | default: '40' %}
 
   <div id="ar-root"
     data-title="{{ title }}"
     data-img="{{ img }}"
-    data-backend="{{ app }}"
+    data-backend="{{ block.settings.backend_url | default: '' }}"
     data-width="{{ width }}"
     data-height="{{ height }}"
   ></div>
 
-  {{ 'ar.css' | asset_url | stylesheet_tag }}
-  <script src="{{ 'ar.js' | asset_url }}" defer></script>
+  {{ 'ar-viewer.css' | asset_url | stylesheet_tag }}
+  <script src="{{ 'ar-viewer.js' | asset_url }}" defer></script>
 
 {% endif %}
 
@@ -29,7 +28,7 @@
       "type": "text",
       "id": "backend_url",
       "label": "Backend URL",
-      "info": "Your Remix app URL e.g. https://your-app.railway.app"
+      "info": "Your app URL e.g. https://elderly-vcr-partially-tabs.trycloudflare.com"
     }
   ]
 }

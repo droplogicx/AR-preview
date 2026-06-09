@@ -4,21 +4,21 @@
   var root = document.getElementById('ar-root');
   if (!root) return;
 
-  var TITLE      = root.dataset.title   || 'Product';
-  var IMG        = root.dataset.img     || '';
-  var BACKEND    = (root.dataset.backend || '').replace(/\/$/, '');
-  var WIDTH_CM   = root.dataset.width   || '60';
-  var HEIGHT_CM  = root.dataset.height  || '40';
-  var PAGE_URL   = window.location.href;
+  var TITLE    = root.dataset.title   || 'Product';
+  var IMG      = root.dataset.img     || '';
+  var BACKEND  = (root.dataset.backend || '').replace(/\/$/, '');
+  var WIDTH    = root.dataset.width   || '60';
+  var HEIGHT   = root.dataset.height  || '40';
+  var PAGE_URL = window.location.href;
 
   var ua        = navigator.userAgent || '';
   var isIOS     = /iphone|ipad|ipod/i.test(ua);
   var isAndroid = /android/i.test(ua);
   var isMobile  = isIOS || isAndroid;
 
-  // ── Inject button + modal ────────────────────────────────────────────────────
+  // ── Inject FAB + Modal into page ─────────────────────────────────────────────
   document.body.insertAdjacentHTML('beforeend',
-    '<button id="ar-fab">' +
+    '<button id="ar-fab" aria-label="View in your room">' +
       '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"' +
           ' stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
         '<path d="M12 2L2 7l10 5 10-5-10-5z"/>' +
@@ -39,9 +39,9 @@
   var fab   = document.getElementById('ar-fab');
   var modal = document.getElementById('ar-modal');
   var body  = document.getElementById('ar-body');
-  var close = document.getElementById('ar-close');
+  var closeBtn = document.getElementById('ar-close');
 
-  // ── Modal ────────────────────────────────────────────────────────────────────
+  // ── Modal open/close ─────────────────────────────────────────────────────────
   function openModal(html) {
     body.innerHTML = html;
     modal.setAttribute('aria-hidden', 'false');
@@ -59,27 +59,27 @@
     document.body.style.overflow = '';
   }
 
-  close.addEventListener('click', closeModal);
+  closeBtn.addEventListener('click', closeModal);
   modal.addEventListener('click', function (e) { if (e.target === modal) closeModal(); });
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape' && modal.classList.contains('ar-open')) closeModal();
   });
 
-  // ── Loading screen ───────────────────────────────────────────────────────────
+  // ── Spinner while fetching GLB ────────────────────────────────────────────────
   function showLoading() {
     openModal(
       '<div class="ar-center">' +
         '<div class="ar-spinner"></div>' +
-        '<p class="ar-loading-text">Preparing AR model…</p>' +
+        '<p class="ar-msg">Preparing AR model…</p>' +
       '</div>'
     );
   }
 
-  // ── Error ────────────────────────────────────────────────────────────────────
+  // ── Error state ───────────────────────────────────────────────────────────────
   function showError(msg) {
     body.innerHTML =
       '<div class="ar-center">' +
-        '<div class="ar-icon ar-icon-warn">' +
+        '<div class="ar-icon ar-warn">' +
           '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"' +
               ' stroke-linecap="round" stroke-linejoin="round">' +
             '<circle cx="12" cy="12" r="10"/>' +
@@ -87,13 +87,13 @@
             '<line x1="12" y1="17" x2="12.01" y2="17"/>' +
           '</svg>' +
         '</div>' +
-        '<h2 class="ar-title">Could not load AR</h2>' +
-        '<p class="ar-sub">' + msg + '</p>' +
+        '<h2 class="ar-title">AR not available</h2>' +
+        '<p class="ar-msg">' + msg + '</p>' +
         '<button class="ar-btn" onclick="location.reload()">Try again</button>' +
       '</div>';
   }
 
-  // ── QR modal (desktop) ───────────────────────────────────────────────────────
+  // ── Desktop: QR code ─────────────────────────────────────────────────────────
   function showQR() {
     var qr = 'https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=12&data=' +
              encodeURIComponent(PAGE_URL);
@@ -108,101 +108,101 @@
           '</svg>' +
         '</div>' +
         '<h2 class="ar-title">View in Your Room</h2>' +
-        '<p class="ar-sub">Scan with your phone to place <strong>' + TITLE + '</strong> in your real room using AR.</p>' +
-        '<div class="ar-qr"><img src="' + qr + '" width="220" height="220" alt="QR code"/></div>' +
+        '<p class="ar-msg">Scan with your phone to place <strong>' + TITLE + '</strong> on your wall in AR.</p>' +
+        '<div class="ar-qr"><img src="' + qr + '" width="220" height="220" alt="QR"/></div>' +
         '<p class="ar-hint">Opens camera on iPhone &amp; Android</p>' +
       '</div>'
     );
   }
 
-  // ── Launch Android Scene Viewer ──────────────────────────────────────────────
+  // ── Android: Google Scene Viewer ──────────────────────────────────────────────
   function launchAndroid(glbUrl) {
-    // Google Scene Viewer — opens device camera + places 3D object in real room
-    var sceneViewerUrl =
-      'https://arvr.google.com/scene-viewer/1.0?' +
-      'file=' + encodeURIComponent(glbUrl) +
-      '&mode=ar_preferred' +
-      '&resizable=false' +
-      '&title=' + encodeURIComponent(TITLE);
+    var fallback = 'https://arvr.google.com/scene-viewer/1.0' +
+      '?file=' + encodeURIComponent(glbUrl) +
+      '&mode=ar_preferred&resizable=false&title=' + encodeURIComponent(TITLE);
 
-    // Intent URL for Chrome on Android
-    var intentUrl =
+    var intent =
       'intent://arvr.google.com/scene-viewer/1.0' +
       '?file=' + encodeURIComponent(glbUrl) +
-      '&mode=ar_preferred' +
-      '&resizable=false' +
+      '&mode=ar_preferred&resizable=false' +
       '&title=' + encodeURIComponent(TITLE) +
       '#Intent' +
       ';scheme=https' +
       ';package=com.google.android.googlequicksearchbox' +
       ';action=android.intent.action.VIEW' +
-      ';S.browser_fallback_url=' + encodeURIComponent(sceneViewerUrl) +
+      ';S.browser_fallback_url=' + encodeURIComponent(fallback) +
       ';end';
 
     closeModal();
-    window.location = intentUrl;
+    window.location = intent;
   }
 
-  // ── Launch iOS ARKit ─────────────────────────────────────────────────────────
+  // ── iOS: ARKit via hidden <a rel="ar"> ────────────────────────────────────────
   function launchIOS(usdzUrl) {
-    // Create hidden <a rel="ar"> and click it — Safari opens native AR camera
     var a = document.createElement('a');
     a.setAttribute('rel', 'ar');
     a.setAttribute('href', usdzUrl);
-    a.style.cssText = 'position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;';
+    a.style.cssText = 'position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;overflow:hidden;';
     var img = document.createElement('img');
-    img.src = '';
-    img.alt = '';
+    img.src = ''; img.alt = '';
     a.appendChild(img);
     document.body.appendChild(a);
     closeModal();
     a.click();
-    setTimeout(function () { document.body.removeChild(a); }, 2000);
+    setTimeout(function () {
+      if (document.body.contains(a)) document.body.removeChild(a);
+    }, 3000);
   }
 
-  // ── Fetch GLB from backend then launch ───────────────────────────────────────
+  // ── Fetch GLB URL from backend → then launch AR ───────────────────────────────
   function fetchAndLaunch() {
     if (!BACKEND) {
-      showError('Backend URL not configured. Set it in theme editor.');
+      showError('Backend URL is not set. Go to Themes → Customize → VR Viewer block → add your app URL.');
       return;
     }
 
     showLoading();
 
-    // Call your Remix backend — it returns { glb: "https://...", usdz: "https://..." }
     var apiUrl = BACKEND + '/api/ar-model' +
       '?img=' + encodeURIComponent(IMG) +
-      '&w=' + encodeURIComponent(WIDTH_CM) +
-      '&h=' + encodeURIComponent(HEIGHT_CM) +
+      '&w=' + encodeURIComponent(WIDTH) +
+      '&h=' + encodeURIComponent(HEIGHT) +
       '&title=' + encodeURIComponent(TITLE);
 
-    fetch(apiUrl)
+    fetch(apiUrl, { method: 'GET', mode: 'cors' })
       .then(function (res) {
-        if (!res.ok) throw new Error('Server error ' + res.status);
-        return res.json();
+        return res.json().then(function (data) {
+          if (!res.ok) {
+            throw new Error(data.error || ('HTTP ' + res.status));
+          }
+          return data;
+        });
       })
       .then(function (data) {
+        if (!data.glb && !data.usdz) {
+          throw new Error('No model URL returned from server');
+        }
         if (isIOS && data.usdz) {
           launchIOS(data.usdz);
-        } else if (isAndroid && data.glb) {
+        } else if (data.glb) {
           launchAndroid(data.glb);
         } else {
-          showError('AR model not available for this device.');
+          showError('AR model not available. Please try again in a moment.');
         }
       })
       .catch(function (err) {
-        console.error('[AR]', err);
-        showError('Could not generate AR model. Please try again.');
+        console.error('[AR Viewer]', err);
+        showError('Could not load AR model: ' + err.message);
       });
   }
 
-  // ── FAB click ────────────────────────────────────────────────────────────────
+  // ── Button click ──────────────────────────────────────────────────────────────
   fab.addEventListener('click', function () {
     if (isMobile) fetchAndLaunch();
     else          showQR();
   });
 
-  // ── Scroll hide/show ─────────────────────────────────────────────────────────
+  // ── Hide FAB on scroll down, show on scroll up ────────────────────────────────
   var lastY = window.scrollY;
   window.addEventListener('scroll', function () {
     var y = window.scrollY;
