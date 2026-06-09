@@ -1,109 +1,86 @@
-/* ─── FAB Button ─────────────────────────────────────────────────────────────── */
-
+/* FAB ────────────────────────────────────────────────────────────────────────── */
 #ar-fab {
   position: fixed;
-  bottom: 24px;
+  bottom: 28px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 9990;
   display: flex;
   align-items: center;
   gap: 9px;
-  padding: 0 22px;
-  height: 50px;
-  min-width: 170px;
+  padding: 0 24px;
+  height: 52px;
+  min-width: 180px;
   background: #111;
   color: #fff;
   border: none;
   border-radius: 999px;
-  cursor: pointer;
   font-family: inherit;
   font-size: 15px;
   font-weight: 500;
   white-space: nowrap;
-  box-shadow: 0 4px 18px rgba(0,0,0,0.25);
-  transition: transform 0.2s ease, opacity 0.25s ease, bottom 0.25s ease;
+  cursor: pointer;
+  box-shadow: 0 4px 22px rgba(0,0,0,0.3);
+  transition: transform .2s, opacity .25s, bottom .25s;
   -webkit-tap-highlight-color: transparent;
+  user-select: none;
 }
-#ar-fab:hover  { transform: translateX(-50%) scale(1.04); background: #222; }
+#ar-fab:hover  { transform: translateX(-50%) scale(1.04); }
 #ar-fab:active { transform: translateX(-50%) scale(0.97); }
-#ar-fab.ar-fab--hidden { opacity: 0; pointer-events: none; bottom: 0; }
+#ar-fab.ar-fab-hide { opacity: 0; pointer-events: none; bottom: 0; }
 
-/* ─── Modal overlay ──────────────────────────────────────────────────────────── */
-
+/* Modal overlay ─────────────────────────────────────────────────────────────── */
 #ar-modal {
   position: fixed;
   inset: 0;
   z-index: 9999;
-  pointer-events: none;
-  visibility: hidden;
-  background: rgba(0,0,0,0);
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  transition: background 0.28s ease, visibility 0s linear 0.28s;
+  background: rgba(0,0,0,0);
+  /* NEVER blocks clicks when closed */
+  pointer-events: none;
+  visibility: hidden;
+  transition: background .28s, visibility 0s linear .28s;
 }
-#ar-modal.ar-modal--visible {
+#ar-modal.ar-open {
   pointer-events: auto;
   visibility: visible;
   background: rgba(0,0,0,0.55);
-  transition: background 0.28s ease, visibility 0s linear 0s;
+  transition: background .28s, visibility 0s;
 }
-
-/* Desktop: centered box */
 @media (min-width: 600px) {
-  #ar-modal { align-items: center; padding: 20px; }
+  #ar-modal { align-items: center; }
 }
 
-/* ─── Modal box ──────────────────────────────────────────────────────────────── */
-
-#ar-modal-box {
+/* Modal box ─────────────────────────────────────────────────────────────────── */
+#ar-box {
   position: relative;
   background: #fff;
-  border-radius: 20px 20px 0 0;
   width: 100%;
-  max-width: 480px;
-  max-height: 92vh;
-  overflow-y: auto;
-  overflow-x: hidden;
-  transform: translateY(100%);
-  transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+  max-width: 420px;
+  border-radius: 20px 20px 0 0;
+  padding: 20px 24px 40px;
+  transform: translateY(110%);
+  transition: transform .3s cubic-bezier(.32,.72,0,1);
   pointer-events: auto;
-  -webkit-overflow-scrolling: touch;
 }
+#ar-modal.ar-open #ar-box { transform: translateY(0); }
 @media (min-width: 600px) {
-  #ar-modal-box {
+  #ar-box {
     border-radius: 16px;
-    transform: scale(0.94);
-    transition: transform 0.22s ease, opacity 0.22s ease;
+    transform: scale(.94);
     opacity: 0;
+    transition: transform .22s ease, opacity .22s ease;
   }
-}
-#ar-modal.ar-modal--visible #ar-modal-box { transform: translateY(0); }
-@media (min-width: 600px) {
-  #ar-modal.ar-modal--visible #ar-modal-box { transform: scale(1); opacity: 1; }
+  #ar-modal.ar-open #ar-box { transform: scale(1); opacity: 1; }
 }
 
-/* ─── Modal header ───────────────────────────────────────────────────────────── */
-
-#ar-modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px 16px 0;
-  position: sticky;
-  top: 0;
-  background: #fff;
-  z-index: 2;
-}
-#ar-modal-heading {
-  font-size: 16px;
-  font-weight: 600;
-  color: #111;
-}
-#ar-modal-close {
-  width: 30px;
-  height: 30px;
+/* Close ─────────────────────────────────────────────────────────────────────── */
+#ar-close {
+  position: absolute;
+  top: 14px; right: 14px;
+  width: 30px; height: 30px;
   border: none;
   background: #f0f0f0;
   border-radius: 50%;
@@ -113,197 +90,83 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  line-height: 1;
-  flex-shrink: 0;
 }
-#ar-modal-close:hover { background: #e0e0e0; }
+#ar-close:hover { background: #e0e0e0; }
 
-/* ─── Room preview wrap ──────────────────────────────────────────────────────── */
+/* Content shared ────────────────────────────────────────────────────────────── */
+.ar-center { text-align: center; padding-top: 8px; }
 
-#ar-room-wrap {
-  display: flex;
-  flex-direction: column;
-  padding-bottom: 24px;
-}
-
-#ar-canvas-wrap {
-  position: relative;
-  width: 100%;
-  background: #222;
-}
-
-#ar-canvas {
-  display: block;
-  width: 100%;
-  height: auto;
-  touch-action: none;
-  cursor: grab;
-}
-#ar-canvas:active { cursor: grabbing; }
-
-#ar-canvas-hint {
-  position: absolute;
-  bottom: 8px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: rgba(0,0,0,0.5);
-  color: #fff;
-  font-size: 11px;
-  padding: 3px 10px;
-  border-radius: 999px;
-  pointer-events: none;
-  white-space: nowrap;
-}
-
-/* ─── Room selector strip ────────────────────────────────────────────────────── */
-
-#ar-room-selector {
-  display: flex;
-  gap: 8px;
-  padding: 12px 14px 4px;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
-}
-#ar-room-selector::-webkit-scrollbar { display: none; }
-
-.ar-room-thumb {
-  flex-shrink: 0;
-  width: 56px;
-  height: 56px;
-  border-radius: 10px;
-  overflow: hidden;
-  border: 2.5px solid transparent;
-  padding: 0;
-  background: #eee;
-  cursor: pointer;
-  transition: border-color 0.15s;
-}
-.ar-room-thumb.active { border-color: #111; }
-.ar-room-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
-
-.ar-room-upload {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  background: #f5f5f5;
-  color: #555;
-  font-size: 10px;
-  font-family: inherit;
-  font-weight: 500;
-}
-.ar-room-upload svg { color: #555; }
-
-/* ─── Size slider ────────────────────────────────────────────────────────────── */
-
-#ar-size-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 14px 4px;
-  font-size: 13px;
-  color: #444;
-}
-#ar-size-row label { flex-shrink: 0; font-weight: 500; }
-#ar-size-row input[type=range] { flex: 1; }
-#ar-size-val { min-width: 34px; text-align: right; font-size: 13px; color: #777; }
-
-/* ─── AR launch button ───────────────────────────────────────────────────────── */
-
-#ar-launch-wrap {
-  padding: 12px 14px 0;
-}
-
-.ar-launch-primary {
+.ar-icon {
+  width: 52px; height: 52px;
+  border-radius: 14px;
+  background: #f0f0f0;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  width: 100%;
-  padding: 14px;
+  margin: 0 auto 14px;
+}
+.ar-icon svg { width: 26px; height: 26px; color: #111; }
+.ar-icon-warn { background: #fff4e0; }
+.ar-icon-warn svg { color: #c07800; }
+
+.ar-title { font-size: 19px; font-weight: 600; color: #111; margin: 0 0 8px; }
+.ar-sub   { font-size: 14px; color: #555; line-height: 1.55; margin: 0 0 20px; }
+.ar-sub strong { color: #111; font-weight: 500; }
+.ar-hint  { font-size: 13px; color: #999; margin: 4px 0 0; }
+
+/* QR ────────────────────────────────────────────────────────────────────────── */
+.ar-qr {
+  display: inline-block;
+  padding: 10px;
+  border: 1.5px solid #eee;
+  border-radius: 12px;
+  margin-bottom: 10px;
+  background: #fff;
+}
+.ar-qr img { display: block; border-radius: 6px; }
+
+/* Spinner ───────────────────────────────────────────────────────────────────── */
+.ar-spinner {
+  width: 40px; height: 40px;
+  border: 3px solid #eee;
+  border-top-color: #111;
+  border-radius: 50%;
+  animation: ar-spin .8s linear infinite;
+  margin: 8px auto 16px;
+}
+@keyframes ar-spin { to { transform: rotate(360deg); } }
+.ar-loading-text { font-size: 15px; color: #555; margin: 0; }
+
+/* Button ────────────────────────────────────────────────────────────────────── */
+.ar-btn {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 11px 28px;
   background: #111;
   color: #fff;
   border: none;
-  border-radius: 12px;
+  border-radius: 999px;
   font-family: inherit;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 500;
   cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-  transition: background 0.15s;
 }
-.ar-launch-primary:hover  { background: #333; }
-.ar-launch-primary:active { background: #000; transform: scale(0.99); }
+.ar-btn:hover { background: #333; }
 
-/* iOS AR link (hidden trigger) */
-#ar-ios-link { display: none; }
-
-#ar-no-model-note {
-  font-size: 13px;
-  color: #888;
-  text-align: center;
-  padding: 12px 14px 0;
-  margin: 0;
-  line-height: 1.5;
-}
-
-/* ─── Desktop QR content ─────────────────────────────────────────────────────── */
-
-.ar-qr-wrap {
-  text-align: center;
-  padding: 8px 24px 32px;
-}
-.ar-qr-icon {
-  width: 52px;
-  height: 52px;
-  background: #f0f0f0;
-  border-radius: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin: 16px auto 14px;
-}
-.ar-qr-icon svg { width: 26px; height: 26px; color: #111; }
-.ar-modal-title { font-size: 20px; font-weight: 600; color: #111; margin: 0 0 8px; }
-.ar-modal-sub   { font-size: 14px; color: #555; margin: 0 0 20px; line-height: 1.55; }
-.ar-modal-sub strong { color: #111; font-weight: 500; }
-.ar-qr-frame {
-  display: inline-block;
-  padding: 10px;
-  border: 1.5px solid #e5e5e5;
-  border-radius: 12px;
-  margin-bottom: 12px;
-  background: #fff;
-}
-.ar-qr-frame img { display: block; border-radius: 6px; }
-.ar-modal-hint { font-size: 13px; color: #999; margin: 0; }
-
-/* ─── Dark mode ──────────────────────────────────────────────────────────────── */
-
+/* Dark mode ─────────────────────────────────────────────────────────────────── */
 @media (prefers-color-scheme: dark) {
-  #ar-modal-box         { background: #1c1c1e; }
-  #ar-modal-header      { background: #1c1c1e; }
-  #ar-modal-heading     { color: #f5f5f7; }
-  #ar-modal-close       { background: #2c2c2e; color: #aaa; }
-  #ar-modal-close:hover { background: #3a3a3c; }
-  #ar-canvas-hint       { background: rgba(255,255,255,0.15); }
-  .ar-room-upload       { background: #2c2c2e; color: #aaa; }
-  .ar-room-upload svg   { color: #aaa; }
-  .ar-room-thumb        { background: #2c2c2e; }
-  .ar-room-thumb.active { border-color: #fff; }
-  #ar-size-row          { color: #ccc; }
-  #ar-size-val          { color: #888; }
-  .ar-launch-primary    { background: #fff; color: #000; }
-  .ar-launch-primary:hover  { background: #e5e5e5; }
-  #ar-no-model-note     { color: #666; }
-  .ar-qr-wrap           {}
-  .ar-qr-icon           { background: #2c2c2e; }
-  .ar-qr-icon svg       { color: #f5f5f7; }
-  .ar-modal-title       { color: #f5f5f7; }
-  .ar-modal-sub         { color: #aaa; }
-  .ar-modal-sub strong  { color: #f5f5f7; }
-  .ar-qr-frame          { border-color: #3a3a3c; background: #2c2c2e; }
-  .ar-modal-hint        { color: #666; }
+  #ar-box           { background: #1c1c1e; }
+  #ar-close         { background: #2c2c2e; color: #bbb; }
+  #ar-close:hover   { background: #3a3a3c; }
+  .ar-icon          { background: #2c2c2e; }
+  .ar-icon svg      { color: #f5f5f7; }
+  .ar-icon-warn     { background: #3a2800; }
+  .ar-icon-warn svg { color: #f0a500; }
+  .ar-title         { color: #f5f5f7; }
+  .ar-sub           { color: #aaa; }
+  .ar-sub strong    { color: #f5f5f7; }
+  .ar-qr            { border-color: #3a3a3c; background: #2c2c2e; }
+  .ar-hint          { color: #666; }
+  .ar-spinner       { border-color: #333; border-top-color: #fff; }
+  .ar-loading-text  { color: #aaa; }
 }
