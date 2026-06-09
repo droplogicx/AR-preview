@@ -1,0 +1,40 @@
+{% comment %}
+  VR Viewer — Floating AR Button Block
+  Only runs on product pages
+{% endcomment %}
+
+{% if template == 'product' and product != blank %}
+
+  {% assign painting_image = product.featured_image | img_url: 'master' %}
+  {% assign product_title = product.title | escape %}
+  {% assign product_width = product.metafields.ar_viewer.width_cm | default: '60' %}
+  {% assign product_height = product.metafields.ar_viewer.height_cm | default: '40' %}
+
+  <div id="ar-viewer-root"
+    data-image="{{ painting_image }}"
+    data-title="{{ product_title }}"
+    data-width="{{ product_width }}"
+    data-height="{{ product_height }}"
+    data-app-url="{{ block.settings.app_proxy_url | default: '' }}"
+  ></div>
+
+  {{ 'ar-viewer.css' | asset_url | stylesheet_tag }}
+  <script src="{{ 'ar-viewer.js' | asset_url }}" defer></script>
+
+{% endif %}
+
+{% schema %}
+{
+  "name": "VR Viewer",
+  "target": "body",
+  "templates": ["product"],
+  "settings": [
+    {
+      "type": "text",
+      "id": "app_proxy_url",
+      "label": "App Backend URL",
+      "info": "Your Remix app URL for 3D model generation"
+    }
+  ]
+}
+{% endschema %}

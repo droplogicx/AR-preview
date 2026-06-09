@@ -1,0 +1,247 @@
+/* ─── AR Floating Button ───────────────────────────────────────────────────── */
+
+#ar-fab {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9990;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 22px;
+  height: 52px;
+  min-width: 180px;
+  background: #000;
+  color: #fff;
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.22);
+  transition: transform 0.2s ease, opacity 0.25s ease, bottom 0.25s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#ar-fab:hover {
+  transform: translateX(-50%) scale(1.04);
+  background: #222;
+}
+
+#ar-fab:active {
+  transform: translateX(-50%) scale(0.97);
+}
+
+#ar-fab.ar-fab--hidden {
+  opacity: 0;
+  pointer-events: none;
+  bottom: 0;
+}
+
+#ar-icon {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+}
+
+#ar-fab-label {
+  line-height: 1;
+}
+
+/* ─── Modal Overlay ─────────────────────────────────────────────────────────── */
+
+#ar-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+
+  /* FIX: invisible + no pointer events when closed — won't block any page clicks */
+  pointer-events: none;
+  visibility: hidden;
+
+  background: rgba(0, 0, 0, 0);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  transition: background 0.28s ease, visibility 0s linear 0.28s;
+  padding: 0;
+}
+
+#ar-modal.ar-modal--visible {
+  /* FIX: only intercept clicks when modal is actually open */
+  pointer-events: auto;
+  visibility: visible;
+  background: rgba(0, 0, 0, 0.52);
+  transition: background 0.28s ease, visibility 0s linear 0s;
+}
+
+@media (min-width: 600px) {
+  #ar-modal {
+    align-items: center;
+    padding: 20px;
+  }
+}
+
+#ar-modal-box {
+  position: relative;
+  background: #fff;
+  border-radius: 20px 20px 0 0;
+  padding: 32px 24px 36px;
+  width: 100%;
+  max-width: 420px;
+  transform: translateY(100%);
+  transition: transform 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+  pointer-events: auto;
+}
+
+@media (min-width: 600px) {
+  #ar-modal-box {
+    border-radius: 16px;
+    transform: scale(0.94);
+    transition: transform 0.22s ease, opacity 0.22s ease;
+    opacity: 0;
+  }
+}
+
+#ar-modal.ar-modal--visible #ar-modal-box {
+  transform: translateY(0);
+}
+
+@media (min-width: 600px) {
+  #ar-modal.ar-modal--visible #ar-modal-box {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+#ar-modal-close {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: #f3f3f3;
+  border-radius: 50%;
+  font-size: 20px;
+  line-height: 1;
+  color: #555;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+}
+
+#ar-modal-close:hover {
+  background: #e5e5e5;
+}
+
+/* ─── QR Content ────────────────────────────────────────────────────────────── */
+
+.ar-qr-wrap {
+  text-align: center;
+}
+
+.ar-qr-icon {
+  width: 52px;
+  height: 52px;
+  background: #f0f0f0;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 16px;
+}
+
+.ar-qr-icon svg {
+  width: 26px;
+  height: 26px;
+  color: #000;
+}
+
+.ar-qr-icon--warn {
+  background: #fff3cd;
+}
+
+.ar-qr-icon--warn svg {
+  color: #b57a00;
+}
+
+.ar-modal-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: #111;
+  margin: 0 0 8px;
+}
+
+.ar-modal-sub {
+  font-size: 14px;
+  color: #555;
+  margin: 0 0 24px;
+  line-height: 1.55;
+}
+
+.ar-modal-sub strong {
+  color: #111;
+  font-weight: 500;
+}
+
+.ar-qr-frame {
+  display: inline-block;
+  padding: 10px;
+  border: 1.5px solid #e5e5e5;
+  border-radius: 12px;
+  margin-bottom: 14px;
+  background: #fff;
+}
+
+.ar-qr-frame img {
+  display: block;
+  width: 200px;
+  height: 200px;
+  border-radius: 6px;
+}
+
+.ar-modal-hint {
+  font-size: 13px;
+  color: #888;
+  margin: 0;
+}
+
+.ar-retry-btn {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 10px 24px;
+  background: #000;
+  color: #fff;
+  border: none;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.ar-retry-btn:hover {
+  background: #222;
+}
+
+/* ─── Dark mode ─────────────────────────────────────────────────────────────── */
+
+@media (prefers-color-scheme: dark) {
+  #ar-modal-box { background: #1c1c1e; }
+  .ar-modal-title { color: #f5f5f7; }
+  .ar-modal-sub { color: #aaa; }
+  .ar-modal-sub strong { color: #f5f5f7; }
+  .ar-qr-icon { background: #2c2c2e; }
+  .ar-qr-icon svg { color: #f5f5f7; }
+  .ar-qr-frame { border-color: #3a3a3c; background: #2c2c2e; }
+  .ar-modal-hint { color: #666; }
+  #ar-modal-close { background: #2c2c2e; color: #aaa; }
+  #ar-modal-close:hover { background: #3a3a3c; }
+}
