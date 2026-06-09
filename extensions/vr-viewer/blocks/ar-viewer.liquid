@@ -1,24 +1,32 @@
 {% comment %}
-  VR Viewer — Floating AR Button Block
+  VR Viewer — Floating AR Button
   Only runs on product pages
 {% endcomment %}
 
 {% if template == 'product' and product != blank %}
 
   {% assign painting_image = product.featured_image | img_url: 'master' %}
-  {% assign product_title = product.title | escape %}
-  {% assign product_width = product.metafields.ar_viewer.width_cm | default: '60' %}
+  {% assign product_title  = product.title | escape %}
+  {% assign product_width  = product.metafields.ar_viewer.width_cm  | default: '60' %}
   {% assign product_height = product.metafields.ar_viewer.height_cm | default: '40' %}
+  {% assign glb_url        = product.metafields.ar_viewer.glb_url   | default: '' %}
+  {% assign usdz_url       = product.metafields.ar_viewer.usdz_url  | default: '' %}
 
   <div id="ar-viewer-root"
     data-image="{{ painting_image }}"
     data-title="{{ product_title }}"
     data-width="{{ product_width }}"
     data-height="{{ product_height }}"
+    data-glb-url="{{ glb_url }}"
+    data-usdz-url="{{ usdz_url }}"
     data-app-url="{{ block.settings.app_proxy_url | default: '' }}"
   ></div>
 
   {{ 'ar-viewer.css' | asset_url | stylesheet_tag }}
+
+  {% comment %} model-viewer web component — enables no-backend AR on mobile {% endcomment %}
+  <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/3.4.0/model-viewer.min.js"></script>
+
   <script src="{{ 'ar-viewer.js' | asset_url }}" defer></script>
 
 {% endif %}
@@ -33,7 +41,7 @@
       "type": "text",
       "id": "app_proxy_url",
       "label": "App Backend URL",
-      "info": "Your Remix app URL for 3D model generation"
+      "info": "Your Remix app URL for GLB/USDZ generation (optional for MVP)"
     }
   ]
 }
