@@ -1,0 +1,34 @@
+{% if template == 'product' and product != blank %}
+
+  {% assign feat = product.featured_image %}
+  {% assign img = feat | image_url: width: 2048 %}
+  {% assign title = product.title | escape %}
+  {% assign width = product.metafields.ar_viewer.width_cm | default: '60' %}
+  {% assign height = product.metafields.ar_viewer.height_cm | default: '40' %}
+
+  <div id="ps-root"
+    data-title="{{ title }}"
+    data-img="{{ img }}"
+    data-img-w="{{ feat.width | default: 0 }}"
+    data-img-h="{{ feat.height | default: 0 }}"
+    data-width="{{ width }}"
+    data-height="{{ height }}"
+  ></div>
+
+  <script type="application/json" id="ps-product-data">
+    {{ product | json }}
+  </script>
+
+  {{ 'poster-studio.css' | asset_url | stylesheet_tag }}
+  <script src="{{ 'poster-studio.js' | asset_url }}" defer></script>
+
+{% endif %}
+
+{% schema %}
+{
+  "name": "Poster Studio",
+  "target": "body",
+  "templates": ["product"],
+  "settings": []
+}
+{% endschema %}

@@ -1,7 +1,16 @@
 {
   "view_in_room": "View in Room",
+  "settings": "Settings",
+  "customize": "Customize",
+  "upload": "Upload",
+  "save": "Save",
+  "view_in_ar": "View in AR",
   "scan_qr": "Scan to view in AR",
-  "qr_instruction": "Point your phone camera at this code",
-  "model_generating": "3D model is being prepared…",
-  "refresh": "Refresh page"
+  "qr_instruction": "Scan the QR code with your phone to view in AR.",
+  "model_generating": "Preparing AR model…",
+  "refresh": "Refresh page",
+  "poster_studio": "Poster Studio",
+  "poster_size": "Size",
+  "poster_frame": "Frame",
+  "poster_matting": "Matting"
 }

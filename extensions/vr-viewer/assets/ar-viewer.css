@@ -1,4 +1,6 @@
-/* ── FAB button ──────────────────────────────────────────────────────────────── */
+#ar-root { display: none; }
+
+/* ── FAB ─────────────────────────────────────────────────────────────────────── */
 #ar-fab {
   position: fixed;
   bottom: 28px;
@@ -29,139 +31,517 @@
 #ar-fab:active { transform: translateX(-50%) scale(0.97); }
 #ar-fab.ar-fab-hide { opacity: 0; pointer-events: none; bottom: 0; }
 
-/* ── Modal overlay ───────────────────────────────────────────────────────────── */
-#ar-modal {
+/* ── Overlay + centered dialog ───────────────────────────────────────────────── */
+#ar-room {
   position: fixed;
   inset: 0;
   z-index: 9999;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: center;
+  padding: 16px;
   background: rgba(0,0,0,0);
-  /* CRITICAL: must NOT block page clicks when closed */
-  pointer-events: none;
+  opacity: 0;
   visibility: hidden;
-  transition: background .28s, visibility 0s linear .28s;
+  pointer-events: none;
+  transition: background .28s, opacity .28s, visibility 0s linear .28s;
 }
-#ar-modal.ar-open {
-  pointer-events: auto;
+#ar-room.ar-open {
+  background: rgba(0,0,0,.55);
+  opacity: 1;
   visibility: visible;
-  background: rgba(0,0,0,0.55);
-  transition: background .28s, visibility 0s;
-}
-@media (min-width: 600px) {
-  #ar-modal { align-items: center; }
+  pointer-events: auto;
+  transition: background .28s, opacity .28s, visibility 0s;
 }
 
-/* ── Modal box ───────────────────────────────────────────────────────────────── */
-#ar-box {
+.ar-room-dialog {
   position: relative;
-  background: #fff;
   width: 100%;
-  max-width: 420px;
-  border-radius: 20px 20px 0 0;
-  padding: 20px 24px 40px;
-  transform: translateY(110%);
-  transition: transform .3s cubic-bezier(.32,.72,0,1);
+  max-width: 960px;
+  max-height: calc(100vh - 24px);
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0,0,0,.35);
+  display: flex;
+  flex-direction: column;
+  overflow: visible;
+  transform: translateY(24px) scale(.97);
+  transition: transform .28s cubic-bezier(.32,.72,0,1);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+#ar-room.ar-open .ar-room-dialog {
+  transform: translateY(0) scale(1);
+}
+
+/* ── Dialog header ───────────────────────────────────────────────────────────── */
+.ar-room-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid #eee;
+  flex-shrink: 0;
+}
+.ar-room-header h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  color: #111;
+}
+.ar-room-header-actions { display: flex; gap: 6px; }
+.ar-icon-btn {
+  width: 34px; height: 34px;
+  border: none;
+  border-radius: 8px;
+  background: #f3f3f3;
+  color: #333;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ar-icon-btn svg { width: 17px; height: 17px; }
+.ar-icon-btn:hover { background: #e8e8e8; }
+
+/* ── Stage (viewport + panels) ───────────────────────────────────────────────── */
+.ar-room-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: visible;
+}
+
+.ar-room-viewport {
+  position: relative;
+  width: 100%;
+  padding: 18px 22px;
+  background: #f4f4f4;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+.ar-viewport-canvas {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  max-height: 58vh;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #e0e0e0;
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,.06);
+}
+.ar-room-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center;
+  display: block;
+  user-select: none;
+  pointer-events: none;
+  border-radius: 10px;
+}
+.ar-room-bg.ar-bg-contain {
+  object-fit: contain;
+  background: #ddd;
+}
+
+/* Paint zone — only the wall area, not full background */
+.ar-wall-tint {
+  position: absolute;
+  z-index: 2;
+  pointer-events: none;
+  border-radius: 2px;
+  opacity: 0.55;
+  mix-blend-mode: multiply;
+  transition: background .2s;
+}
+
+.ar-product-wrap {
+  position: absolute;
+  z-index: 5;
+  cursor: grab;
+  touch-action: none;
+  transform-origin: center center;
+  background: transparent;
+  overflow: visible;
+}
+.ar-product-wrap.ar-dragging {
+  cursor: grabbing;
+}
+
+/* ── Vertical size slider (right middle) ─────────────────────────────────────── */
+.ar-size-slider {
+  position: absolute;
+  right: 32px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 8;
+  height: 48%;
+  min-height: 130px;
+  max-height: 240px;
+  width: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   pointer-events: auto;
 }
-#ar-modal.ar-open #ar-box { transform: translateY(0); }
-@media (min-width: 600px) {
-  #ar-box {
-    border-radius: 16px;
-    transform: scale(.94);
-    opacity: 0;
-    transition: transform .22s ease, opacity .22s ease;
-  }
-  #ar-modal.ar-open #ar-box { transform: scale(1); opacity: 1; }
+.ar-size-slider-track {
+  position: relative;
+  width: 5px;
+  height: 100%;
+  background: rgba(255,255,255,.6);
+  border-radius: 99px;
+  box-shadow: 0 0 0 1px rgba(0,0,0,.1);
+  cursor: pointer;
+}
+.ar-size-slider-fill {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 50%;
+  background: rgba(17,17,17,.7);
+  border-radius: 99px;
+  pointer-events: none;
+  transition: height .05s linear;
+}
+.ar-size-slider-thumb {
+  position: absolute;
+  left: 50%;
+  bottom: 50%;
+  transform: translate(-50%, 50%);
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #111;
+  border: 2.5px solid #fff;
+  box-shadow: 0 2px 10px rgba(0,0,0,.35);
+  cursor: grab;
+  padding: 0;
+  touch-action: none;
+  transition: box-shadow .15s;
+}
+.ar-size-slider-thumb.ar-dragging,
+.ar-size-slider-thumb:active {
+  cursor: grabbing;
+  box-shadow: 0 4px 14px rgba(0,0,0,.45);
+}
+.ar-product-mat {
+  display: block;
+  width: 100%;
+  height: 100%;
+  line-height: 0;
+  box-sizing: border-box;
+}
+.ar-product-frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  line-height: 0;
+  overflow: hidden;
+  box-sizing: border-box;
+  background: transparent;
+}
+.ar-product-frame img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center;
+  pointer-events: none;
+  background: transparent;
+}
+/* Hide white studio background when no frame/matting */
+.ar-product-frame.ar-blend img {
+  mix-blend-mode: multiply;
 }
 
-/* ── Close button ────────────────────────────────────────────────────────────── */
-#ar-close {
+/* ── Floating panels (inside viewport) ───────────────────────────────────────── */
+.ar-panel {
   position: absolute;
-  top: 14px; right: 14px;
-  width: 30px; height: 30px;
+  z-index: 12;
+  background: #fff;
+  border-radius: 12px;
+  padding: 14px 16px;
+  box-shadow: 0 6px 24px rgba(0,0,0,.18);
+  width: 220px;
+  max-width: calc(100% - 24px);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(6px);
+  transition: opacity .2s, transform .2s, visibility 0s linear .2s;
+  pointer-events: none;
+}
+.ar-panel.ar-open {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  pointer-events: auto;
+  transition: opacity .2s, transform .2s, visibility 0s;
+}
+.ar-settings-panel { top: 10px; left: 10px; }
+
+.ar-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.ar-panel-head strong { font-size: 14px; }
+.ar-panel-reset {
+  width: 26px; height: 26px;
+  border: none; background: #f0f0f0;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.ar-panel-reset svg { width: 13px; height: 13px; }
+.ar-field { display: block; margin-bottom: 10px; font-size: 12px; color: #333; }
+.ar-field-label { display: block; margin-bottom: 5px; }
+.ar-field input[type="range"] { width: 100%; margin-top: 3px; accent-color: #111; }
+.ar-field input[type="number"],
+.ar-field select {
+  width: 100%; margin-top: 3px; padding: 6px 8px;
+  border: 1px solid #ddd; border-radius: 7px; font-size: 12px;
+}
+.ar-field-row {
+  display: flex; align-items: center;
+  justify-content: space-between; gap: 8px;
+  margin-bottom: 8px; font-size: 12px;
+}
+.ar-field-half { flex: 1; }
+.ar-toggle-label {
+  display: flex; align-items: center; gap: 6px;
+  cursor: pointer; user-select: none;
+}
+
+.ar-swatches { display: flex; flex-wrap: wrap; gap: 6px; }
+.ar-swatch {
+  width: 24px; height: 24px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer; padding: 0;
+}
+.ar-swatch.ar-active { border-color: #111; box-shadow: 0 0 0 2px #fff, 0 0 0 3px #111; }
+.ar-matting-btns { display: flex; gap: 6px; }
+.ar-mat-btn {
+  flex: 1; padding: 6px 10px;
+  border: 1.5px solid #ddd; border-radius: 7px;
+  background: #fff; font-size: 12px; cursor: pointer;
+}
+.ar-mat-btn.ar-active { border-color: #111; background: #111; color: #fff; }
+
+/* ── Bottom toolbar (inside dialog, not full screen) ─────────────────────────── */
+.ar-room-bottom {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px 12px;
+  border-top: 1px solid #eee;
+  background: #fff;
+  flex-shrink: 0;
+  overflow: visible;
+  position: relative;
+  z-index: 10;
+}
+.ar-room-bottom::-webkit-scrollbar { display: none; }
+
+.ar-bottom-left,
+.ar-bottom-right {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.ar-bottom-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 8px;
+  min-width: 52px;
+  border: 1px solid #e5e5e5;
+  border-radius: 9px;
+  background: #fff;
+  color: #111;
+  font-size: 10px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .15s, border-color .15s;
+}
+.ar-bottom-btn svg { width: 16px; height: 16px; }
+.ar-bottom-btn:hover { background: #f5f5f5; }
+.ar-bottom-btn.ar-active { background: #111; color: #fff; border-color: #111; }
+.ar-btn-ar { font-weight: 600; }
+
+.ar-customize-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: none;
+  border-radius: 999px;
+  background: #111;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.ar-customize-toggle .ar-chevron {
+  width: 14px;
+  height: 14px;
+  transition: transform .2s;
+  flex-shrink: 0;
+}
+.ar-customize-toggle.ar-open .ar-chevron { transform: rotate(180deg); }
+
+/* ── Toolbar popovers (above buttons) ────────────────────────────────────────── */
+.ar-popover-anchor {
+  position: relative;
+  flex-shrink: 0;
+}
+.ar-popover {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  right: 0;
+  z-index: 30;
+  background: #fff;
+  border-radius: 12px;
+  padding: 16px 18px;
+  box-shadow: 0 8px 28px rgba(0,0,0,.18);
+  border: 1px solid #eee;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(6px);
+  transition: opacity .2s, transform .2s, visibility 0s linear .2s;
+  pointer-events: none;
+  min-width: 220px;
+}
+.ar-popover.ar-open {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  pointer-events: auto;
+  transition: opacity .2s, transform .2s, visibility 0s;
+}
+.ar-customize-popover { width: 240px; }
+.ar-qr-popover {
+  width: 260px;
+  text-align: center;
+  padding: 20px 22px 22px;
+}
+.ar-qr-popover h3 {
+  margin: 0 0 6px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #111;
+}
+.ar-qr-popover p {
+  margin: 0 0 14px;
+  font-size: 12px;
+  color: #555;
+  line-height: 1.45;
+}
+.ar-popover-close {
+  position: absolute;
+  top: 8px; right: 8px;
+  width: 26px; height: 26px;
   border: none;
   background: #f0f0f0;
   border-radius: 50%;
-  font-size: 18px;
-  color: #555;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  font-size: 17px;
   line-height: 1;
+  cursor: pointer;
+  color: #555;
 }
-#ar-close:hover { background: #e0e0e0; }
+.ar-qr-img img { border-radius: 6px; display: block; margin: 0 auto; }
 
-/* ── Content ─────────────────────────────────────────────────────────────────── */
-.ar-center { text-align: center; padding-top: 8px; }
-
-.ar-icon {
-  width: 52px; height: 52px;
-  border-radius: 14px;
-  background: #f0f0f0;
+/* ── Room thumbnails ─────────────────────────────────────────────────────────── */
+.ar-thumb-strip {
+  flex: 1;
   display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 2px 4px;
+  justify-content: center;
+  min-width: 0;
+  scrollbar-width: none;
+}
+.ar-thumb-strip::-webkit-scrollbar { display: none; }
+.ar-thumb {
+  flex-shrink: 0;
+  width: 64px; height: 42px;
+  border: 2px solid #ddd;
+  border-radius: 7px;
+  overflow: hidden;
+  padding: 0;
+  cursor: pointer;
+  background: #eee;
+  transition: border-color .15s, opacity .15s;
+}
+.ar-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ar-thumb:hover { border-color: #999; }
+.ar-thumb.ar-active { border-color: #111; }
+
+/* ── Loading overlay ─────────────────────────────────────────────────────────── */
+.ar-loading-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 25;
+  display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  margin: 0 auto 14px;
+  background: rgba(255,255,255,.88);
+  backdrop-filter: blur(4px);
+  color: #111;
+  font-size: 14px;
 }
-.ar-icon svg { width: 26px; height: 26px; color: #111; }
-.ar-warn { background: #fff4e0; }
-.ar-warn svg { color: #c07800; }
-
-.ar-title { font-size: 19px; font-weight: 600; color: #111; margin: 0 0 8px; }
-.ar-msg   { font-size: 14px; color: #555; line-height: 1.55; margin: 0 0 20px; }
-.ar-msg strong { color: #111; font-weight: 500; }
-.ar-hint  { font-size: 13px; color: #999; margin: 4px 0 0; }
-
-/* ── QR ──────────────────────────────────────────────────────────────────────── */
-.ar-qr {
-  display: inline-block;
-  padding: 10px;
-  border: 1.5px solid #eee;
-  border-radius: 12px;
-  margin-bottom: 10px;
-  background: #fff;
+.ar-loading-overlay[hidden] { display: none !important; }
+.ar-loading-text {
+  margin: 0;
+  font-weight: 500;
+  text-align: center;
+  padding: 0 20px;
 }
-.ar-qr img { display: block; border-radius: 6px; }
-
-/* ── Spinner ─────────────────────────────────────────────────────────────────── */
 .ar-spinner {
   width: 40px; height: 40px;
-  border: 3px solid #eee;
+  border: 3px solid #ddd;
   border-top-color: #111;
   border-radius: 50%;
   animation: ar-spin .8s linear infinite;
-  margin: 8px auto 16px;
+  margin-bottom: 12px;
 }
 @keyframes ar-spin { to { transform: rotate(360deg); } }
 
-/* ── Button ──────────────────────────────────────────────────────────────────── */
-.ar-btn {
-  display: inline-block;
-  margin-top: 8px;
-  padding: 11px 28px;
-  background: #111; color: #fff;
-  border: none; border-radius: 999px;
-  font-family: inherit; font-size: 14px; font-weight: 500;
-  cursor: pointer;
-}
-.ar-btn:hover { background: #333; }
-
-/* ── Dark mode ───────────────────────────────────────────────────────────────── */
-@media (prefers-color-scheme: dark) {
-  #ar-box        { background: #1c1c1e; }
-  #ar-close      { background: #2c2c2e; color: #bbb; }
-  #ar-close:hover{ background: #3a3a3c; }
-  .ar-icon       { background: #2c2c2e; }
-  .ar-icon svg   { color: #f5f5f7; }
-  .ar-warn       { background: #3a2800; }
-  .ar-warn svg   { color: #f0a500; }
-  .ar-title      { color: #f5f5f7; }
-  .ar-msg        { color: #aaa; }
-  .ar-msg strong { color: #f5f5f7; }
-  .ar-qr         { border-color: #3a3a3c; background: #2c2c2e; }
-  .ar-hint       { color: #666; }
-  .ar-spinner    { border-color: #333; border-top-color: #fff; }
+/* ── Mobile ──────────────────────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  #ar-room { padding: 0; align-items: flex-end; }
+  .ar-room-dialog {
+    max-width: 100%;
+    max-height: 96vh;
+    border-radius: 16px 16px 0 0;
+  }
+  .ar-room-viewport { padding: 12px 14px; }
+  .ar-viewport-canvas { max-height: 40vh; aspect-ratio: 4 / 3; }
+  .ar-size-slider { right: 20px; min-height: 100px; max-height: 180px; }
+  .ar-room-bottom { flex-wrap: nowrap; padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+  .ar-bottom-btn { min-width: 44px; font-size: 9px; padding: 5px 6px; }
+  .ar-thumb { width: 54px; height: 36px; }
+  .ar-panel { width: calc(100% - 20px); left: 10px !important; right: 10px !important; }
+  .ar-popover {
+    right: auto;
+    left: 50%;
+    transform: translateX(-50%) translateY(6px);
+    max-width: calc(100vw - 32px);
+  }
+  .ar-popover.ar-open {
+    transform: translateX(-50%) translateY(0);
+  }
 }

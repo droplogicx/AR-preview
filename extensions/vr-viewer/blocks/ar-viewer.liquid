@@ -1,6 +1,7 @@
 {% if template == 'product' and product != blank %}
 
-  {% assign img    = product.featured_image | img_url: 'master' %}
+  {% assign feat   = product.featured_image %}
+  {% assign img    = feat | image_url: width: 2048 %}
   {% assign title  = product.title | escape %}
   {% assign width  = product.metafields.ar_viewer.width_cm  | default: '60' %}
   {% assign height = product.metafields.ar_viewer.height_cm | default: '40' %}
@@ -8,7 +9,9 @@
   <div id="ar-root"
     data-title="{{ title }}"
     data-img="{{ img }}"
-    data-backend="{{ block.settings.backend_url | default: '' }}"
+    data-img-w="{{ feat.width | default: 0 }}"
+    data-img-h="{{ feat.height | default: 0 }}"
+    data-backend="{{ block.settings.backend_url | escape }}"
     data-width="{{ width }}"
     data-height="{{ height }}"
   ></div>
@@ -27,8 +30,8 @@
     {
       "type": "text",
       "id": "backend_url",
-      "label": "Backend URL",
-      "info": "Your app URL e.g. https://elderly-vcr-partially-tabs.trycloudflare.com"
+      "label": "App backend URL",
+      "info": "Your Shopify app tunnel URL (required for View in AR)."
     }
   ]
 }
