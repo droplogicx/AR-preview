@@ -1,7 +1,13 @@
 {% if template == 'product' and product != blank %}
 
   {% assign feat   = product.featured_image %}
-  {% assign img    = feat | image_url: width: 2048 %}
+  {% if feat != blank %}
+    {% assign img       = feat | image_url: width: 2048 %}
+    {% assign img_thumb = feat | image_url: width: 160, height: 120, crop: 'center' %}
+  {% else %}
+    {% assign img       = '' %}
+    {% assign img_thumb = '' %}
+  {% endif %}
   {% assign title  = product.title | escape %}
   {% assign width  = product.metafields.ar_viewer.width_cm  | default: '60' %}
   {% assign height = product.metafields.ar_viewer.height_cm | default: '40' %}
@@ -9,12 +15,34 @@
   <div id="ar-root"
     data-title="{{ title }}"
     data-img="{{ img }}"
+    data-img-thumb="{{ img_thumb }}"
     data-img-w="{{ feat.width | default: 0 }}"
     data-img-h="{{ feat.height | default: 0 }}"
     data-backend="{{ block.settings.backend_url | escape }}"
     data-width="{{ width }}"
     data-height="{{ height }}"
+    data-room-0="{{ 'room-living-2.jpg' | asset_url }}"
+    data-room-1="{{ 'room-bedroom-12.jpg' | asset_url }}"
+    data-room-2="{{ 'room-living-15.jpg' | asset_url }}"
+    data-room-3="{{ 'room-empty-wall.png' | asset_url }}"
+    data-room-4="{{ 'room-dining-13.jpg' | asset_url }}"
+    data-room-5="{{ 'room-bathroom-4.jpg' | asset_url }}"
+    data-room-6="{{ 'room-dining-4.jpg' | asset_url }}"
+    data-room-7="{{ 'room-study-8.jpg' | asset_url }}"
   ></div>
+
+  <script type="application/json" id="ar-rooms-data">
+  [
+    {"name":"Living Room","url":"{{ 'room-living-2.jpg' | asset_url }}","wall":{"top":14,"left":3,"width":94,"height":52},"productY":38,"paintable":false},
+    {"name":"Bedroom","url":"{{ 'room-bedroom-12.jpg' | asset_url }}","wall":{"top":8,"left":5,"width":90,"height":58},"productY":34,"paintable":false},
+    {"name":"Coastal Lounge","url":"{{ 'room-living-15.jpg' | asset_url }}","wall":{"top":12,"left":4,"width":92,"height":50},"productY":36,"paintable":false},
+    {"name":"Empty Wall","url":"{{ 'room-empty-wall.png' | asset_url }}","wall":{"top":0,"left":0,"width":100,"height":84},"productY":38,"paintable":true},
+    {"name":"Rustic Dining","url":"{{ 'room-dining-13.jpg' | asset_url }}","wall":{"top":10,"left":4,"width":92,"height":48},"productY":32,"paintable":false},
+    {"name":"Bathroom","url":"{{ 'room-bathroom-4.jpg' | asset_url }}","wall":{"top":6,"left":6,"width":88,"height":55},"productY":30,"paintable":false},
+    {"name":"Modern Dining","url":"{{ 'room-dining-4.jpg' | asset_url }}","wall":{"top":8,"left":5,"width":90,"height":50},"productY":34,"paintable":false},
+    {"name":"Study","url":"{{ 'room-study-8.jpg' | asset_url }}","wall":{"top":10,"left":8,"width":84,"height":52},"productY":36,"paintable":false}
+  ]
+  </script>
 
   {{ 'ar-viewer.css' | asset_url | stylesheet_tag }}
   <script src="{{ 'ar-viewer.js' | asset_url }}" defer></script>

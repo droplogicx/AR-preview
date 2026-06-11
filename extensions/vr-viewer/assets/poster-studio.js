@@ -1,508 +1,699 @@
 (function () {
   'use strict';
 
-  var configEl = document.getElementById('ps-root');
-  if (!configEl) return;
+  var root = document.getElementById('ps-root');
+  if (!root) return;
 
-  var TITLE     = configEl.dataset.title || 'Product';
-  var IMG       = configEl.dataset.img || '';
-  var IMG_W     = parseFloat(configEl.dataset.imgW || '0');
-  var IMG_H     = parseFloat(configEl.dataset.imgH || '0');
-  var WIDTH_CM  = parseFloat(configEl.dataset.width || '60');
-  var HEIGHT_CM = parseFloat(configEl.dataset.height || '40');
-
+  var TITLE = root.dataset.title || 'Product';
+  var IMG   = root.dataset.img || '';
+  var IMG_W = parseFloat(root.dataset.imgW || '0');
+  var IMG_H = parseFloat(root.dataset.imgH || '0');
+  var W_CM  = parseFloat(root.dataset.width || '60');
+  var H_CM  = parseFloat(root.dataset.height || '40');
   if (IMG.indexOf('//') === 0) IMG = 'https:' + IMG;
 
   var productData = null;
   try {
-    var jsonEl = document.getElementById('ps-product-data');
-    if (jsonEl) productData = JSON.parse(jsonEl.textContent);
-  } catch (e) {
-    console.warn('[Poster Studio] Could not parse product JSON');
+    var dataEl = document.getElementById('ps-product-data');
+    if (dataEl) productData = JSON.parse(dataEl.textContent);
+  } catch (e) {}
+
+  var SIZE_MAP = {
+    '8x10': 0.52, '10x15': 0.56, '11x14': 0.70, '16x20': 0.84,
+    '16x24': 0.82, '18x24': 0.94, '20x30': 1.00, '24x36': 1.18,
+    '30x40': 1.32, '40x50': 1.46, '50x70': 1.58
+  };
+
+  var FRAMES = {
+    none:   { frame: false, mat: false, float: false, color: null },
+    canvas: { frame: false, mat: false, float: false, color: null },
+    float:  { frame: false, mat: false, float: true,  color: null },
+    wood:   { frame: true,  mat: true,  float: false, color: '#c4a574' },
+    white:  { frame: true,  mat: true,  float: false, color: '#f0eeea' },
+    black:  { frame: true,  mat: true,  float: false, color: '#1c1c1c' },
+    gold:   { frame: true,  mat: true,  float: false, color: '#c9a84c' },
+    silver: { frame: true,  mat: true,  float: false, color: '#a0a0a0' },
+    walnut: { frame: true,  mat: true,  float: false, color: '#5c3d1e' },
+    maple:  { frame: true,  mat: true,  float: false, color: '#d4a96a' }
+  };
+
+  var ROOMS = [
+    { label: 'Living Room', url: 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=1800&q=85&auto=format&fit=crop' },
+    { label: 'Bedroom',     url: 'https://images.unsplash.com/photo-1616594039964-ae9021a400a0?w=1800&q=85&auto=format&fit=crop' },
+    { label: 'Office',      url: 'https://images.unsplash.com/photo-1497366216548-37526070297c?w=1800&q=85&auto=format&fit=crop' },
+    { label: 'Hallway',     url: 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=1800&q=85&auto=format&fit=crop' }
+  ];
+
+  var S = {
+    scale: 1.0, label: '', frameKey: 'wood',
+    tiltX: 0, tiltY: 0, zoomed: false, loading: false,
+    roomIdx: 0, artX: 0.5, artY: 0.42, artSize: 34
+  };
+
+  var E = {};
+  var bufs = [new Image(), new Image()];
+  var activeIdx = -1, pendingId = 0;
+  var imgRatio = null, imgSrc = '';
+  var lastVarId = '', lastPickSig = '', pollId = null;
+
+  var roomImg = new Image();
+  var roomReady = false, roomLoadedUrl = '';
+  var roomCanvas, roomCtx, roomFs, drag = null;
+
+  function norm(s) {
+    if (!s || s === 'undefined' || s === 'null') return '';
+    s = ('' + s).trim();
+    return s.indexOf('//') === 0 ? 'https:' + s : s;
   }
-
-  var TILT_MAX_Y = 14;
-  var TILT_MAX_X = 10;
-  var imageReady = false;
-  var loadedImageUrl = '';
-  var lastVariantId = '';
-  var pickerWatchId = null;
-
-  var SIZE_SCALE_MAP = {
-    '10x15': 0.55,
-    '11x14': 0.72,
-    '16x20': 0.88,
-    '16x24': 0.82,
-    '18x24': 0.98,
-    '20x30': 1.0,
-    '24x36': 1.18,
-    '8x10': 0.52
-  };
-
-  var state = {
-    sizeScale: 1,
-    sizeLabel: '',
-    frameType: 'frame',
-    frameColor: '#6b4c35',
-    matting: false,
-    floatShadow: false,
-    hoverTiltX: 0,
-    hoverTiltY: 0
-  };
-
-  var els = {};
-  var productRatio = null;
-  var productImage = new Image();
-
-  function getProductRatio() {
-    if (productRatio && productRatio > 0) return productRatio;
+  function imgKey(src) {
+    var f = norm(src); if (!f) return '';
+    try { var u = new URL(f); return u.hostname + u.pathname; }
+    catch (e) { return f.replace(/^https?:\/\//, '').split('?')[0]; }
+  }
+  function shopifyW(src, w) {
+    var f = norm(src); if (!f) return '';
+    return /[?&]width=\d+/i.test(f)
+      ? f.replace(/width=\d+/i, 'width=' + w)
+      : f + (f.indexOf('?') >= 0 ? '&' : '?') + 'width=' + w;
+  }
+  function getRatio() {
+    if (imgRatio > 0) return imgRatio;
     if (IMG_W > 0 && IMG_H > 0) return IMG_H / IMG_W;
-    if (HEIGHT_CM > 0 && WIDTH_CM > 0) return HEIGHT_CM / WIDTH_CM;
+    if (W_CM > 0 && H_CM > 0) return H_CM / W_CM;
     return 1.25;
   }
-
-  function normalizeSrc(src) {
-    if (!src || typeof src !== 'string') return '';
-    var s = src.trim();
-    if (!s || s === 'undefined' || s === 'null') return '';
-    if (s.indexOf('//') === 0) return 'https:' + s;
-    return s;
+  function parseSizeScale(str) {
+    var m = String(str || '').match(/(\d+(?:\.\d+)?)\s*[*x×"']\s*(\d+(?:\.\d+)?)/i);
+    if (!m) return 1.0;
+    var k = parseFloat(m[1]) + 'x' + parseFloat(m[2]);
+    if (SIZE_MAP[k]) return SIZE_MAP[k];
+    return Math.min(1.58, Math.max(0.45, Math.sqrt(parseFloat(m[1]) * parseFloat(m[2]) / 864) * 1.12));
   }
-
-  function sizeKeyFromString(str) {
-    if (!str) return null;
-    var m = String(str).match(/(\d+(?:\.\d+)?)\s*[*x×]\s*(\d+(?:\.\d+)?)/i);
-    if (!m) return null;
-    return parseFloat(m[1]) + 'x' + parseFloat(m[2]);
-  }
-
-  function scaleFromSize(str) {
-    var key = sizeKeyFromString(str);
-    if (key && SIZE_SCALE_MAP[key]) return SIZE_SCALE_MAP[key];
-    if (key) {
-      var p = key.split('x');
-      var area = parseFloat(p[0]) * parseFloat(p[1]);
-      return Math.min(1.35, Math.max(0.45, Math.sqrt(area / 864) * 1.12));
-    }
-    return 1;
-  }
-
-  function frameFromOption(str) {
+  function parseFrameKey(str) {
     var s = String(str || '').toLowerCase().trim();
-    if (!s || /unfram/i.test(s)) {
-      return { type: 'none', color: null, matting: false, floatShadow: false };
-    }
-    if (/float/i.test(s)) {
-      return { type: 'float', color: null, matting: false, floatShadow: true };
-    }
-    if (s === 'canvas' || /^canvas\s*print/i.test(s)) {
-      return { type: 'canvas', color: null, matting: false, floatShadow: false };
-    }
-    if (/wood/i.test(s)) return { type: 'frame', color: '#6b4c35', matting: true, floatShadow: false };
-    if (/white/i.test(s)) return { type: 'frame', color: '#f5f5f0', matting: true, floatShadow: false };
-    if (/black/i.test(s)) return { type: 'frame', color: '#1a1a1a', matting: true, floatShadow: false };
-    if (/gold/i.test(s)) return { type: 'frame', color: '#c9a84c', matting: true, floatShadow: false };
-    if (/silver/i.test(s)) return { type: 'frame', color: '#9a9a9a', matting: true, floatShadow: false };
-    return { type: 'frame', color: '#6b4c35', matting: true, floatShadow: false };
+    if (!s || /unfram|none/i.test(s)) return 'none';
+    if (/float/i.test(s)) return 'float';
+    if (/^canvas/i.test(s)) return 'canvas';
+    if (/walnut/i.test(s)) return 'walnut';
+    if (/maple/i.test(s)) return 'maple';
+    if (/wood|natural/i.test(s)) return 'wood';
+    if (/white/i.test(s)) return 'white';
+    if (/black/i.test(s)) return 'black';
+    if (/gold/i.test(s)) return 'gold';
+    if (/silver/i.test(s)) return 'silver';
+    return 'wood';
+  }
+  function shade(hex, amt) {
+    if (!hex || hex[0] !== '#') return hex;
+    var n = parseInt(hex.slice(1), 16);
+    var r = Math.max(0, Math.min(255, ((n >> 16) & 255) + amt));
+    var g = Math.max(0, Math.min(255, ((n >> 8) & 255) + amt));
+    var b = Math.max(0, Math.min(255, (n & 255) + amt));
+    return 'rgb(' + r + ',' + g + ',' + b + ')';
   }
 
-  function isSizeOption(name) {
-    return /size|dimension/i.test(name || '');
-  }
-
-  function isFrameOption(name) {
-    return /fram|mount|style|finish/i.test(name || '');
-  }
-
-  function applyOptionByName(optionName, value) {
-    if (!value) return;
-    if (isSizeOption(optionName)) {
-      state.sizeScale = scaleFromSize(value);
-      state.sizeLabel = value;
-      return;
-    }
-    if (isFrameOption(optionName)) {
-      var f = frameFromOption(value);
-      state.frameType = f.type;
-      state.frameColor = f.color;
-      state.matting = f.matting;
-      state.floatShadow = f.floatShadow;
-    }
-  }
-
-  function getVariantIdInput() {
-    return document.querySelector('form[action*="/cart/add"] input[name="id"]') ||
+  function varIdInput() {
+    return document.querySelector('product-form input[name="id"]') ||
+      document.querySelector('form[action*="/cart/add"] input[name="id"]') ||
       document.querySelector('input[name="id"]');
   }
-
-  function getCurrentVariant() {
+  function currentVariant() {
     if (!productData || !productData.variants) return null;
-    var input = getVariantIdInput();
-    var id = input ? String(input.value) : '';
+    var inp = varIdInput(), id = inp ? String(inp.value) : '';
     for (var i = 0; i < productData.variants.length; i++) {
       if (String(productData.variants[i].id) === id) return productData.variants[i];
     }
     return productData.variants[0] || null;
   }
-
-  function getPickerSelections() {
+  function varImgSrc(v) {
+    if (!v) return IMG;
+    var fi = v.featured_image || (v.featured_media && v.featured_media.preview_image);
+    return fi && fi.src ? norm(fi.src) : IMG;
+  }
+  function readPicker() {
     var out = {};
-
-    document.querySelectorAll('variant-picker fieldset.variant-option').forEach(function (fs) {
-      var legend = fs.querySelector('legend');
-      var name = legend ? legend.textContent.trim() : '';
-      var checked = fs.querySelector('input:checked, input[checked]');
-      if (name && checked) out[name] = checked.value;
+    document.querySelectorAll('variant-picker fieldset, fieldset.variant-option').forEach(function (fs) {
+      var leg = fs.querySelector('legend');
+      var name = leg ? leg.textContent.trim() : '';
+      if (!name) return;
+      var chk = fs.querySelector('input[type="radio"]:checked, input:checked');
+      if (chk && chk.value) { out[name] = chk.value; return; }
+      var sel = fs.querySelector('[aria-checked="true"], .variant-option__button-label--selected, .selected');
+      if (sel) {
+        var inp = sel.querySelector('input[type="radio"]');
+        if (inp && inp.value) out[name] = inp.value;
+        else if (sel.dataset.value) out[name] = sel.dataset.value;
+      }
     });
-
-    document.querySelectorAll('variant-picker select').forEach(function (sel) {
-      var wrap = sel.closest('fieldset.variant-option, .variant-option, .product-form__input');
+    document.querySelectorAll('variant-picker select, select[name^="options["]').forEach(function (sel) {
+      var wrap = sel.closest('fieldset, .product-form__input, .variant-option');
       var name = '';
-      if (wrap) {
-        var leg = wrap.querySelector('legend, label');
-        if (leg) name = leg.textContent.trim();
-      }
-      if (!name && sel.name) {
-        name = sel.name.replace(/^options\[|\]$/g, '');
-      }
+      if (wrap) { var l = wrap.querySelector('legend, label'); if (l) name = l.textContent.trim(); }
+      if (!name && sel.name) name = sel.name.replace(/^options\[|\]$/g, '');
       if (name && sel.value) out[name] = sel.value;
     });
-
-    document.querySelectorAll('select[name^="options["]').forEach(function (sel) {
-      var name = sel.name.replace(/^options\[|\]$/g, '');
-      if (name && sel.value) out[name] = sel.value;
-    });
-
     return out;
   }
-
-  function applyFromPickerSelections() {
-    var picked = getPickerSelections();
-    Object.keys(picked).forEach(function (name) {
-      applyOptionByName(name, picked[name]);
-    });
+  function pickerSig() { return JSON.stringify(readPicker()); }
+  function applyOption(name, val) {
+    if (!val) return;
+    if (/size|dimension|format/i.test(name)) { S.scale = parseSizeScale(val); S.label = val; }
+    else if (/fram|mount|style|finish|type|print/i.test(name)) { S.frameKey = parseFrameKey(val); }
+  }
+  function applyPicker() { var p = readPicker(); Object.keys(p).forEach(function (k) { applyOption(k, p[k]); }); }
+  function applyVariant(v) {
+    if (!v || !productData) return;
+    var opts = productData.options || [];
+    [v.option1, v.option2, v.option3].forEach(function (val, i) { if (opts[i]) applyOption(opts[i], val); });
   }
 
-  function applyFromVariantObject(variant) {
-    if (!variant || !productData) return;
-    var options = productData.options || [];
-    var vals = [variant.option1, variant.option2, variant.option3];
-    for (var i = 0; i < options.length; i++) {
-      applyOptionByName(options[i], vals[i]);
-    }
-  }
-
-  function variantImageUrl(variant) {
-    if (!variant) return IMG;
-    if (variant.featured_image && variant.featured_image.src) {
-      return normalizeSrc(variant.featured_image.src);
-    }
-    if (variant.featured_media && variant.featured_media.preview_image && variant.featured_media.preview_image.src) {
-      return normalizeSrc(variant.featured_media.preview_image.src);
-    }
-    return IMG;
-  }
-
-  function syncCanvasFromVariants() {
-    applyFromPickerSelections();
-
-    var variant = getCurrentVariant();
-    if (variant) {
-      applyFromVariantObject(variant);
-    }
-
-    renderPreview();
-
-    if (variant) {
-      var nextUrl = variantImageUrl(variant);
-      if (nextUrl && nextUrl !== loadedImageUrl) {
-        loadProductImage(nextUrl);
-      }
-    }
-  }
-
-  function onImageReady() {
-    if (productImage.naturalWidth > 0) {
-      productRatio = productImage.naturalHeight / productImage.naturalWidth;
-      imageReady = true;
-    }
-    drawCanvas();
-  }
-
-  function loadProductImage(src) {
-    var full = normalizeSrc(src) || IMG;
+  function activeBuf() { return activeIdx >= 0 ? bufs[activeIdx] : null; }
+  function loadImg(src) {
+    var full = norm(src) || IMG;
     if (!full) return;
-
-    if (full === loadedImageUrl && imageReady && productImage.complete) {
-      drawCanvas();
-      return;
-    }
-
-    loadedImageUrl = full;
-    productImage.onload = onImageReady;
-    productImage.onerror = function () {
-      if (full !== IMG) {
-        loadProductImage(IMG);
+    if (imgKey(full) === imgKey(imgSrc) && activeBuf() && activeBuf().naturalWidth) return;
+    S.loading = true;
+    if (E.loader) E.loader.hidden = false;
+    var id = ++pendingId;
+    var buf = bufs[activeIdx < 0 ? 0 : 1 - activeIdx];
+    buf.onload = function () {
+      if (id !== pendingId) return;
+      if (buf.naturalWidth) {
+        imgRatio = buf.naturalHeight / buf.naturalWidth;
+        activeIdx = bufs.indexOf(buf);
+        imgSrc = full;
       }
+      S.loading = false;
+      if (E.loader) E.loader.hidden = true;
+      drawGalleryCanvas();
+      if (roomFs && roomFs.classList.contains('ps-room-open')) drawRoomCanvas();
     };
-    productImage.src = full;
-
-    if (productImage.complete && productImage.naturalWidth) {
-      onImageReady();
-    }
+    buf.onerror = function () {
+      if (id !== pendingId) return;
+      S.loading = false;
+      if (E.loader) E.loader.hidden = true;
+      if (activeBuf()) drawGalleryCanvas();
+    };
+    buf.src = shopifyW(full, 2400);
+    if (buf.complete && buf.naturalWidth) buf.onload();
   }
 
-  function drawCanvas() {
-    if (!els.canvas || !els.canvasStage) return;
-    if (!imageReady || !productImage.naturalWidth) return;
+  function drawFramedArt(ctx, img, fc, ox, oy, artW, artH, opts) {
+    opts = opts || {};
+    var tiltX = opts.tiltX || 0;
+    var tiltY = opts.tiltY || 0;
+    var matPx   = fc.mat   ? Math.round(Math.max(12, artW * 0.07))  : 0;
+    var framePx = fc.frame ? Math.round(Math.max(4,  artW * 0.016)) : 0;
+    var totW = artW + (matPx + framePx) * 2;
+    var totH = artH + (matPx + framePx) * 2;
 
-    var rect = els.canvasStage.getBoundingClientRect();
-    if (rect.width < 2 || rect.height < 2) return;
-
-    var dpr = Math.min(window.devicePixelRatio || 1, 2);
-    var cw = rect.width;
-    var ch = rect.height;
-
-    els.canvas.width = Math.round(cw * dpr);
-    els.canvas.height = Math.round(ch * dpr);
-    els.canvas.style.width = cw + 'px';
-    els.canvas.style.height = ch + 'px';
-
-    var ctx = els.canvas.getContext('2d');
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, cw, ch);
-
-    var ratio = getProductRatio();
-    var posterW = cw * 0.72 * (state.sizeScale || 1);
-    var posterH = posterW * ratio;
-
-    if (posterH > ch * 0.82) {
-      posterH = ch * 0.82;
-      posterW = posterH / ratio;
+    ctx.save();
+    if (fc.float) {
+      ctx.shadowColor = 'rgba(0,0,0,0.34)';
+      ctx.shadowBlur = 26;
+      ctx.shadowOffsetX = Math.round(5 - tiltY * 0.35);
+      ctx.shadowOffsetY = Math.round(12 + tiltX * 0.3);
+    } else {
+      ctx.shadowColor = 'rgba(0,0,0,0.2)';
+      ctx.shadowBlur = 20;
+      ctx.shadowOffsetX = Math.round(3 - tiltY * 0.4);
+      ctx.shadowOffsetY = Math.round(8 + tiltX * 0.35);
     }
-    if (posterW > cw * 0.88) {
-      posterW = cw * 0.88;
-      posterH = posterW * ratio;
+    ctx.fillStyle = fc.frame ? fc.color : '#ffffff';
+    ctx.fillRect(ox, oy, totW, totH);
+    ctx.restore();
+
+    if (fc.frame && fc.color) {
+      ctx.fillStyle = fc.color;
+      ctx.fillRect(ox, oy, totW, totH);
+      ctx.fillStyle = shade(fc.color, -16);
+      ctx.fillRect(ox, oy, totW, framePx);
+      ctx.fillRect(ox, oy, framePx, totH);
+      ctx.fillStyle = shade(fc.color, 12);
+      ctx.fillRect(ox, oy + totH - framePx, totW, framePx);
+      ctx.fillRect(ox + totW - framePx, oy, framePx, totH);
     }
 
-    var hasFrame = state.frameType === 'frame' && state.frameColor;
-    var matPx = state.matting ? Math.max(10, posterW * 0.06) : 0;
-    var framePx = hasFrame ? Math.max(5, posterW * 0.02) : 0;
-    var totalW = posterW + (matPx + framePx) * 2;
-    var totalH = posterH + (matPx + framePx) * 2;
-    var x = (cw - totalW) / 2;
-    var y = (ch - totalH) / 2;
-
-    if (state.floatShadow) {
-      ctx.save();
-      ctx.shadowColor = 'rgba(0,0,0,0.32)';
-      ctx.shadowBlur = 22;
-      ctx.shadowOffsetY = 10;
+    if (fc.mat && matPx > 0) {
       ctx.fillStyle = '#ffffff';
-      ctx.fillRect(x, y, totalW, totalH);
-      ctx.restore();
-    }
-
-    if (matPx > 0) {
-      ctx.fillStyle = '#f8f6f0';
-      ctx.fillRect(x, y, totalW, totalH);
-    }
-    if (hasFrame) {
-      ctx.fillStyle = state.frameColor;
-      ctx.fillRect(x, y, totalW, totalH);
+      ctx.fillRect(ox + framePx, oy + framePx, artW + matPx * 2, artH + matPx * 2);
     }
 
     try {
-      ctx.drawImage(productImage, x + matPx + framePx, y + matPx + framePx, posterW, posterH);
-    } catch (err) {
-      console.warn('[Poster Studio] drawImage failed', err);
-    }
+      ctx.drawImage(img, ox + framePx + matPx, oy + framePx + matPx, artW, artH);
+    } catch (e) {}
 
-    if (els.sizeLabel) {
-      els.sizeLabel.textContent = state.sizeLabel || '';
-      els.sizeLabel.hidden = !state.sizeLabel;
-    }
+    return { totW: totW, totH: totH };
   }
 
-  function renderPreview() {
-    drawCanvas();
-    if (els.canvasTilt) {
-      els.canvasTilt.style.transform =
-        'perspective(900px) rotateY(' + state.hoverTiltY + 'deg) rotateX(' + state.hoverTiltX + 'deg)';
+  function calcGalleryFrame(stageW, stageH) {
+    var fc = FRAMES[S.frameKey] || FRAMES.wood;
+    var r = getRatio();
+    var padX = Math.max(20, stageW * 0.035);
+    var padY = Math.max(24, stageH * 0.04);
+    var availW = stageW - padX * 2;
+    var availH = stageH - padY * 2;
+
+    var artW = Math.round(availW * 0.96 * S.scale);
+    var artH = Math.round(artW * r);
+    var matPx   = fc.mat   ? Math.round(Math.max(12, artW * 0.07))  : 0;
+    var framePx = fc.frame ? Math.round(Math.max(4,  artW * 0.016)) : 0;
+    var totW = artW + (matPx + framePx) * 2;
+    var totH = artH + (matPx + framePx) * 2;
+
+    if (totH > availH) {
+      artH = Math.round(availH - (matPx + framePx) * 2);
+      artW = Math.round(artH / r);
+      totW = artW + (matPx + framePx) * 2;
+      totH = artH + (matPx + framePx) * 2;
     }
-  }
-
-  function onThemeVariantEvent(e) {
-    var variant = e && e.detail && e.detail.variant;
-    if (variant) {
-      applyFromVariantObject(variant);
-      var nextUrl = variantImageUrl(variant);
-      if (nextUrl && nextUrl !== loadedImageUrl) {
-        loadProductImage(nextUrl);
-      }
-    }
-    applyFromPickerSelections();
-    renderPreview();
-  }
-
-  function scheduleSync() {
-    syncCanvasFromVariants();
-    window.setTimeout(syncCanvasFromVariants, 0);
-    window.setTimeout(syncCanvasFromVariants, 60);
-    window.setTimeout(syncCanvasFromVariants, 180);
-  }
-
-  function bindHoverTilt(stage) {
-    if (!stage) return;
-
-    function setTilt(clientX, clientY) {
-      var rect = stage.getBoundingClientRect();
-      var x = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-      var y = Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
-      state.hoverTiltY = (x - 0.5) * TILT_MAX_Y * 2;
-      state.hoverTiltX = (0.5 - y) * TILT_MAX_X * 2;
-      renderPreview();
+    if (totW > availW) {
+      artW = Math.round(availW - (matPx + framePx) * 2);
+      artH = Math.round(artW * r);
+      totW = artW + (matPx + framePx) * 2;
+      totH = artH + (matPx + framePx) * 2;
     }
 
-    function resetTilt() {
-      state.hoverTiltX = 0;
-      state.hoverTiltY = 0;
-      renderPreview();
+    return { fc: fc, artW: artW, artH: artH, totW: totW, totH: totH };
+  }
+
+  function drawGalleryCanvas() {
+    var canvas = E.canvas, stage = E.stage;
+    if (!canvas || !stage) return;
+    var img = activeBuf();
+    if (!img || !img.naturalWidth) return;
+    var rect = stage.getBoundingClientRect();
+    if (rect.width < 4 || rect.height < 4) return;
+
+    var layout = calcGalleryFrame(rect.width, rect.height);
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    var totW = layout.totW, totH = layout.totH;
+
+    if (canvas.width !== Math.round(totW * dpr) || canvas.height !== Math.round(totH * dpr)) {
+      canvas.width = Math.round(totW * dpr);
+      canvas.height = Math.round(totH * dpr);
+      canvas.style.width = totW + 'px';
+      canvas.style.height = totH + 'px';
     }
 
-    stage.addEventListener('mousemove', function (e) { setTilt(e.clientX, e.clientY); });
-    stage.addEventListener('mouseleave', resetTilt);
-    stage.addEventListener('touchmove', function (e) {
-      if (e.touches.length) setTilt(e.touches[0].clientX, e.touches[0].clientY);
-    }, { passive: true });
-    stage.addEventListener('touchend', resetTilt);
-  }
+    var ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.clearRect(0, 0, totW, totH);
 
-  function findGallery() {
-    return document.querySelector('[data-testid="product-information-media"] media-gallery') ||
-      document.querySelector('.product-information__media media-gallery') ||
-      document.querySelector('.product-information__media');
-  }
-
-  function bindVariantInputs() {
-    document.querySelectorAll('variant-picker input, variant-picker select').forEach(function (el) {
-      if (el.dataset.psBound) return;
-      el.dataset.psBound = '1';
-      el.addEventListener('change', scheduleSync);
-      el.addEventListener('input', scheduleSync);
-      el.addEventListener('click', scheduleSync);
+    drawFramedArt(ctx, img, layout.fc, 0, 0, layout.artW, layout.artH, {
+      tiltX: S.zoomed ? 0 : S.tiltX,
+      tiltY: S.zoomed ? 0 : S.tiltY
     });
+
+    if (E.sizeLabel) {
+      E.sizeLabel.textContent = S.label || '';
+      E.sizeLabel.hidden = !S.label;
+    }
   }
 
-  function watchVariantIdInput() {
-    var idInput = getVariantIdInput();
-    if (!idInput) return;
-
-    lastVariantId = idInput.value;
-    idInput.addEventListener('change', scheduleSync);
-    idInput.addEventListener('input', scheduleSync);
-
-    if (pickerWatchId) window.clearInterval(pickerWatchId);
-    pickerWatchId = window.setInterval(function () {
-      if (idInput.value !== lastVariantId) {
-        lastVariantId = idInput.value;
-        syncCanvasFromVariants();
-      }
-    }, 150);
+  function applyTilt() {
+    if (!E.tilt) return;
+    var sc = S.zoomed ? 1.65 : 1;
+    var ty = S.zoomed ? 0 : S.tiltY;
+    var tx = S.zoomed ? 0 : S.tiltX;
+    E.tilt.style.transform =
+      'perspective(1100px) rotateX(' + tx + 'deg) rotateY(' + ty + 'deg) scale(' + sc + ')';
+    if (E.stage) E.stage.classList.toggle('ps-zoomed', S.zoomed);
+    drawGalleryCanvas();
   }
 
-  function observePickers() {
-    document.querySelectorAll('variant-picker').forEach(function (picker) {
-      new MutationObserver(function () {
-        bindVariantInputs();
-        scheduleSync();
-      }).observe(picker, {
-        childList: true,
-        subtree: true,
-        attributes: true,
-        attributeFilter: ['checked', 'class', 'value']
+  function bindGalleryTilt(el) {
+    if (!el) return;
+    function set(cx, cy) {
+      if (S.zoomed || S.loading) return;
+      var b = el.getBoundingClientRect();
+      var nx = (cx - b.left) / b.width;
+      var ny = (cy - b.top) / b.height;
+      S.tiltY = (0.5 - nx) * 18;
+      S.tiltX = (0.5 - ny) * 12;
+      applyTilt();
+    }
+    function rst() { S.tiltX = 0; S.tiltY = 0; applyTilt(); }
+    el.addEventListener('mousemove', function (e) { set(e.clientX, e.clientY); });
+    el.addEventListener('mouseleave', rst);
+    el.addEventListener('touchmove', function (e) {
+      if (e.touches[0]) set(e.touches[0].clientX, e.touches[0].clientY);
+    }, { passive: true });
+    el.addEventListener('touchend', rst);
+  }
+
+  /* ── Room fullscreen (reference site lightbox) ─────────────────────────── */
+  function buildRoomView() {
+    if (document.getElementById('ps-room-fs')) {
+      roomFs = document.getElementById('ps-room-fs');
+      roomCanvas = document.getElementById('ps-room-canvas');
+      return;
+    }
+
+    roomFs = document.createElement('div');
+    roomFs.id = 'ps-room-fs';
+    roomFs.setAttribute('role', 'dialog');
+    roomFs.setAttribute('aria-modal', 'true');
+    roomFs.setAttribute('aria-label', 'View in a room');
+    roomFs.innerHTML = [
+      '<button type="button" id="ps-room-close" aria-label="Close">',
+        '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">',
+          '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
+        '</svg>',
+      '</button>',
+      '<div id="ps-room-cv-wrap"><canvas id="ps-room-canvas"></canvas></div>',
+      '<div id="ps-room-thumbs">',
+        ROOMS.map(function (rm, i) {
+          return '<button type="button" class="ps-rthumb' + (i === 0 ? ' ps-rthumb-active' : '') + '" data-ridx="' + i + '">' +
+            '<img src="' + rm.url.replace('w=1800', 'w=120') + '" alt="' + rm.label + '" loading="lazy"/>' +
+          '</button>';
+        }).join(''),
+      '</div>',
+      '<button type="button" id="ps-closeup-btn">View close up</button>'
+    ].join('');
+    document.body.appendChild(roomFs);
+
+    roomCanvas = document.getElementById('ps-room-canvas');
+
+    document.getElementById('ps-room-close').addEventListener('click', closeRoomView);
+    document.getElementById('ps-closeup-btn').addEventListener('click', closeRoomView);
+    roomFs.addEventListener('click', function (e) { if (e.target === roomFs) closeRoomView(); });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && roomFs.classList.contains('ps-room-open')) closeRoomView();
+    });
+
+    roomFs.querySelectorAll('.ps-rthumb[data-ridx]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var idx = parseInt(btn.dataset.ridx, 10);
+        S.roomIdx = idx;
+        roomFs.querySelectorAll('.ps-rthumb').forEach(function (b) { b.classList.remove('ps-rthumb-active'); });
+        btn.classList.add('ps-rthumb-active');
+        loadRoomBg(ROOMS[idx].url, drawRoomCanvas);
       });
     });
+
+    roomCanvas.addEventListener('mousedown', onRoomDragStart);
+    roomCanvas.addEventListener('mousemove', onRoomDragMove);
+    roomCanvas.addEventListener('mouseup', onRoomDragEnd);
+    roomCanvas.addEventListener('mouseleave', onRoomDragEnd);
+    roomCanvas.addEventListener('touchstart', onRoomDragStart, { passive: true });
+    roomCanvas.addEventListener('touchmove', onRoomDragMove, { passive: false });
+    roomCanvas.addEventListener('touchend', onRoomDragEnd);
+
+    if (window.ResizeObserver) {
+      new ResizeObserver(resizeRoomCanvas).observe(document.getElementById('ps-room-cv-wrap'));
+    }
   }
 
-  function bindVariantPicker() {
-    document.addEventListener('variant:update', onThemeVariantEvent);
-    document.addEventListener('variant:change', onThemeVariantEvent);
+  function loadRoomBg(url, cb) {
+    if (url === roomLoadedUrl && roomReady) { if (cb) cb(); return; }
+    roomLoadedUrl = url;
+    roomReady = false;
+    roomImg.onload = function () { roomReady = true; drawRoomCanvas(); if (cb) cb(); };
+    roomImg.onerror = function () {};
+    roomImg.src = url;
+    if (roomImg.complete && roomImg.naturalWidth) { roomReady = true; drawRoomCanvas(); if (cb) cb(); }
+  }
 
+  function resizeRoomCanvas() {
+    if (!roomCanvas) return;
+    var wrap = document.getElementById('ps-room-cv-wrap');
+    if (!wrap) return;
+    var r = wrap.getBoundingClientRect();
+    if (r.width < 4) return;
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    roomCanvas.width = Math.round(r.width * dpr);
+    roomCanvas.height = Math.round(r.height * dpr);
+    roomCanvas.style.width = r.width + 'px';
+    roomCanvas.style.height = r.height + 'px';
+    roomCtx = roomCanvas.getContext('2d');
+    roomCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    roomCtx.imageSmoothingEnabled = true;
+    roomCtx.imageSmoothingQuality = 'high';
+    drawRoomCanvas();
+  }
+
+  function drawRoomCanvas() {
+    if (!roomCanvas || !roomCtx) return;
+    var img = activeBuf();
+    if (!img || !img.naturalWidth) return;
+
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    var vw = roomCanvas.width / dpr;
+    var vh = roomCanvas.height / dpr;
+    roomCtx.clearRect(0, 0, vw, vh);
+
+    if (roomReady && roomImg.naturalWidth) {
+      var iw = roomImg.naturalWidth, ih = roomImg.naturalHeight;
+      var ir = iw / ih, cr = vw / vh;
+      var sx = 0, sy = 0, sw = iw, sh = ih;
+      if (ir > cr) { sw = ih * cr; sx = (iw - sw) / 2; }
+      else { sh = iw / cr; sy = (ih - sh) / 2; }
+      roomCtx.drawImage(roomImg, sx, sy, sw, sh, 0, 0, vw, vh);
+    } else {
+      roomCtx.fillStyle = '#d8d5cf';
+      roomCtx.fillRect(0, 0, vw, vh);
+    }
+
+    var fc = FRAMES[S.frameKey] || FRAMES.wood;
+    var r = getRatio();
+    var artW = Math.round(vw * S.artSize / 100 * S.scale);
+    var artH = Math.round(artW * r);
+    if (artH > vh * 0.72) { artH = Math.round(vh * 0.72); artW = Math.round(artH / r); }
+
+    var matPx   = fc.mat   ? Math.round(Math.max(8, artW * 0.07))  : 0;
+    var framePx = fc.frame ? Math.round(Math.max(3, artW * 0.016)) : 0;
+    var totW = artW + (matPx + framePx) * 2;
+    var totH = artH + (matPx + framePx) * 2;
+    var ox = Math.round(S.artX * vw - totW / 2);
+    var oy = Math.round(S.artY * vh - totH / 2);
+
+    drawFramedArt(roomCtx, img, fc, ox, oy, artW, artH, {});
+  }
+
+  function roomPos(e) {
+    var r = roomCanvas.getBoundingClientRect();
+    var cx = e.touches ? e.touches[0].clientX : e.clientX;
+    var cy = e.touches ? e.touches[0].clientY : e.clientY;
+    return { x: (cx - r.left) / r.width, y: (cy - r.top) / r.height };
+  }
+  function onRoomDragStart(e) {
+    var p = roomPos(e);
+    var fc = FRAMES[S.frameKey] || FRAMES.wood;
+    var r = roomCanvas.getBoundingClientRect();
+    var vw = r.width, vh = r.height;
+    var artW = vw * S.artSize / 100 * S.scale;
+    var artH = artW * getRatio();
+    var mat = fc.mat ? Math.max(8, artW * 0.07) : 0;
+    var frm = fc.frame ? Math.max(3, artW * 0.016) : 0;
+    var tw = (artW + (mat + frm) * 2) / vw * 0.5 + 0.05;
+    var th = (artH + (mat + frm) * 2) / vh * 0.5 + 0.05;
+    if (Math.abs(p.x - S.artX) < tw && Math.abs(p.y - S.artY) < th) {
+      drag = { px: p.x, py: p.y, ax: S.artX, ay: S.artY };
+      roomCanvas.style.cursor = 'grabbing';
+    }
+  }
+  function onRoomDragMove(e) {
+    if (!drag) return;
+    if (e.cancelable) e.preventDefault();
+    var p = roomPos(e);
+    S.artX = Math.max(0.08, Math.min(0.92, drag.ax + (p.x - drag.px)));
+    S.artY = Math.max(0.1, Math.min(0.85, drag.ay + (p.y - drag.py)));
+    drawRoomCanvas();
+  }
+  function onRoomDragEnd() {
+    drag = null;
+    if (roomCanvas) roomCanvas.style.cursor = 'grab';
+  }
+
+  function openRoomView() {
+    buildRoomView();
+    document.body.style.overflow = 'hidden';
+    roomFs.classList.add('ps-room-open');
+    setTimeout(function () {
+      resizeRoomCanvas();
+      loadRoomBg(ROOMS[S.roomIdx].url, drawRoomCanvas);
+    }, 30);
+  }
+  function closeRoomView() {
+    if (!roomFs) return;
+    roomFs.classList.remove('ps-room-open');
+    document.body.style.overflow = '';
+  }
+
+  function sync(evV) {
+    applyPicker();
+    var v = evV || currentVariant();
+    if (v) applyVariant(v);
+    applyTilt();
+    if (v) {
+      var src = varImgSrc(v);
+      if (imgKey(src) !== imgKey(imgSrc)) loadImg(src);
+      else if (roomFs && roomFs.classList.contains('ps-room-open')) drawRoomCanvas();
+    }
+  }
+  function scheduleSync(evV) {
+    sync(evV);
+    setTimeout(function () { sync(evV); }, 0);
+    setTimeout(function () { sync(evV); }, 100);
+  }
+
+  var GALLERY_SEL = [
+    '[data-testid="product-information-media"] media-gallery',
+    '.product-information__media media-gallery',
+    '.product-information__media',
+    'product-media-gallery',
+    '.product__media-wrapper media-gallery',
+    '.product__media-wrapper',
+    'media-gallery',
+    '.product__media'
+  ];
+  function findGallery() {
+    for (var i = 0; i < GALLERY_SEL.length; i++) {
+      var el = document.querySelector(GALLERY_SEL[i]);
+      if (el) return el;
+    }
+    return null;
+  }
+  function hideGallery(g) {
+    g.style.setProperty('visibility', 'hidden', 'important');
+    g.style.setProperty('opacity', '0', 'important');
+    g.style.setProperty('pointer-events', 'none', 'important');
+  }
+
+  function mount(gallery) {
+    var wrap = gallery.parentElement || gallery;
+    if (getComputedStyle(wrap).position === 'static') wrap.style.position = 'relative';
+
+    hideGallery(gallery);
+    new MutationObserver(function () { hideGallery(gallery); })
+      .observe(gallery, { attributes: true, attributeFilter: ['style', 'class'] });
+    new MutationObserver(function () {
+      hideGallery(gallery);
+      var ov = document.getElementById('ps-overlay');
+      if (ov && wrap.lastElementChild && wrap.lastElementChild.id !== 'ps-overlay') wrap.appendChild(ov);
+    }).observe(wrap, { childList: true });
+
+    var overlay = document.createElement('div');
+    overlay.id = 'ps-overlay';
+    overlay.innerHTML = [
+      '<div id="ps-stage">',
+        '<div id="ps-loader" hidden><div class="ps-spinner"></div></div>',
+        '<button type="button" id="ps-zoom-btn" aria-label="Zoom in" aria-pressed="false">',
+          '<svg id="ps-zi" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">',
+            '<circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
+            '<line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/>',
+          '</svg>',
+          '<svg id="ps-zo" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" hidden>',
+            '<circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
+            '<line x1="8" y1="11" x2="14" y2="11"/>',
+          '</svg>',
+        '</button>',
+        '<div id="ps-tilt">',
+          '<span id="ps-size-lbl" hidden></span>',
+          '<canvas id="ps-canvas" aria-label="' + TITLE + ' preview"></canvas>',
+        '</div>',
+      '</div>'
+    ].join('');
+    wrap.appendChild(overlay);
+
+    function sizeOv() {
+      var gr = gallery.getBoundingClientRect();
+      var wr = wrap.getBoundingClientRect();
+      if (gr.width < 4) return;
+      overlay.style.cssText = [
+        'position:absolute',
+        'top:' + (gr.top - wr.top) + 'px',
+        'left:' + (gr.left - wr.left) + 'px',
+        'width:' + gr.width + 'px',
+        'height:' + gr.height + 'px',
+        'z-index:200',
+        'background:#ffffff',
+        'overflow:hidden'
+      ].join(';');
+    }
+    sizeOv();
+    window.addEventListener('resize', sizeOv);
+    if (window.ResizeObserver) new ResizeObserver(function () { sizeOv(); drawGalleryCanvas(); }).observe(gallery);
+
+    E.stage     = document.getElementById('ps-stage');
+    E.tilt      = document.getElementById('ps-tilt');
+    E.canvas    = document.getElementById('ps-canvas');
+    E.sizeLabel = document.getElementById('ps-size-lbl');
+    E.loader    = document.getElementById('ps-loader');
+
+    var zBtn = document.getElementById('ps-zoom-btn');
+    var zi = document.getElementById('ps-zi'), zo = document.getElementById('ps-zo');
+    function toggleZoom() {
+      S.zoomed = !S.zoomed;
+      if (S.zoomed) { S.tiltX = 0; S.tiltY = 0; }
+      applyTilt();
+      zBtn.setAttribute('aria-pressed', S.zoomed ? 'true' : 'false');
+      zBtn.setAttribute('aria-label', S.zoomed ? 'Zoom out' : 'Zoom in');
+      zi.hidden = S.zoomed;
+      zo.hidden = !S.zoomed;
+    }
+    zBtn.addEventListener('click', function (e) { e.stopPropagation(); toggleZoom(); });
+
+    bindGalleryTilt(E.tilt);
+    if (window.ResizeObserver) new ResizeObserver(function () { drawGalleryCanvas(); }).observe(E.stage);
+
+    var virBtn = document.createElement('button');
+    virBtn.id = 'ps-vir-btn';
+    virBtn.type = 'button';
+    virBtn.textContent = 'View in a room';
+    virBtn.addEventListener('click', openRoomView);
+
+    var mediaCol = wrap.closest('.product-information__media') ||
+      document.querySelector('[data-testid="product-information-media"]') || wrap;
+    mediaCol.appendChild(virBtn);
+
+    ['variant:update', 'variant:change', 'product:variant-change'].forEach(function (ev) {
+      document.addEventListener(ev, function (e) {
+        var v = e && e.detail && (e.detail.variant || e.detail.resource);
+        scheduleSync(v);
+      });
+    });
     document.addEventListener('change', function (e) {
       var t = e.target;
       if (!t || !t.closest) return;
-      if (t.closest('variant-picker') ||
-          t.name === 'id' ||
-          (t.name && t.name.indexOf('options') === 0) ||
-          t.closest('.variant-option') ||
-          t.closest('variant-selects')) {
-        scheduleSync();
-      }
+      if (t.closest('variant-picker') || t.closest('product-form') || t.name === 'id' ||
+          (t.name && t.name.indexOf('options') === 0) || t.closest('.variant-option')) scheduleSync();
     }, true);
-
     document.addEventListener('click', function (e) {
-      if (e.target.closest('.variant-option__button-label') ||
-          e.target.closest('fieldset.variant-option label') ||
-          e.target.closest('.variant-option') ||
-          e.target.closest('variant-picker')) {
-        scheduleSync();
-      }
+      if (!e.target || !e.target.closest) return;
+      if (e.target.closest('.variant-option__button-label') || e.target.closest('fieldset.variant-option') ||
+          e.target.closest('.variant-option') || e.target.closest('variant-picker')) scheduleSync();
     }, true);
 
-    bindVariantInputs();
-    observePickers();
-    watchVariantIdInput();
-  }
-
-  function mountCanvasOnGallery(gallery) {
-    var mediaCol = gallery.closest('.product-information__media') ||
-      document.querySelector('[data-testid="product-information-media"]');
-    if (mediaCol) mediaCol.classList.add('ps-enhanced');
-    gallery.classList.add('ps-enhanced');
-
-    var overlay = document.createElement('div');
-    overlay.className = 'ps-gallery-overlay';
-    overlay.innerHTML =
-      '<div class="ps-canvas-stage" id="ps-canvas-stage">' +
-        '<div class="ps-canvas-tilt" id="ps-canvas-tilt">' +
-          '<span class="ps-preview-size-label" id="ps-size-label" hidden></span>' +
-          '<canvas id="ps-product-canvas" aria-label="' + TITLE + ' preview"></canvas>' +
-        '</div>' +
-      '</div>';
-
-    gallery.insertBefore(overlay, gallery.firstChild);
-
-    els.canvasStage = document.getElementById('ps-canvas-stage');
-    els.canvasTilt  = document.getElementById('ps-canvas-tilt');
-    els.canvas      = document.getElementById('ps-product-canvas');
-    els.sizeLabel   = document.getElementById('ps-size-label');
-
-    bindHoverTilt(els.canvasStage);
-
-    if (window.ResizeObserver) {
-      new ResizeObserver(function () { drawCanvas(); }).observe(els.canvasStage);
+    var idInp = varIdInput();
+    if (idInp) {
+      lastVarId = idInp.value;
+      lastPickSig = pickerSig();
+      if (pollId) clearInterval(pollId);
+      pollId = setInterval(function () {
+        var vid = idInp.value, ps = pickerSig();
+        if (vid !== lastVarId || ps !== lastPickSig) {
+          lastVarId = vid;
+          lastPickSig = ps;
+          scheduleSync();
+        }
+      }, 120);
     }
 
-    bindVariantPicker();
-    syncCanvasFromVariants();
-
-    var variant = getCurrentVariant();
-    loadProductImage(variantImageUrl(variant));
+    scheduleSync();
+    loadImg(varImgSrc(currentVariant()));
   }
 
+  var tries = 0;
   function init() {
-    var gallery = findGallery();
-    if (!gallery) {
-      window.setTimeout(init, 200);
-      return;
-    }
-    mountCanvasOnGallery(gallery);
+    var g = findGallery();
+    if (!g) { if (++tries < 30) setTimeout(init, 250); return; }
+    mount(g);
   }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
-    init();
-  }
 })();

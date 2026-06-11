@@ -1,60 +1,242 @@
-#ps-root { display: none; }
+#ps-root { display: none !important; }
 
-/* ── Canvas overlay on theme product gallery ─────────────────────────────────── */
-.product-information__media.ps-enhanced .product-media__image {
-  visibility: hidden !important;
+/* ── Gallery: clean white wall (Coastal Geographic style) ─────────────────── */
+#ps-overlay {
+  overflow: hidden;
 }
 
-media-gallery.ps-enhanced {
-  position: relative;
-}
-
-.ps-gallery-overlay {
-  position: absolute;
-  inset: 0;
-  z-index: 6;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--color-background, #fff);
-  pointer-events: auto;
-  min-height: 280px;
-}
-
-.ps-canvas-stage {
+#ps-stage {
   position: relative;
   width: 100%;
   height: 100%;
-  min-height: 280px;
+  min-height: 300px;
   display: flex;
   align-items: center;
   justify-content: center;
-  cursor: crosshair;
-  touch-action: none;
+  background: #ffffff;
+  overflow: hidden;
 }
 
-.ps-canvas-tilt {
+#ps-tilt {
   position: relative;
+  flex-shrink: 0;
   transform-style: preserve-3d;
-  transition: transform .12s ease-out;
+  transform-origin: center center;
+  transition: transform 0.16s ease-out;
   will-change: transform;
-  max-width: 100%;
-  max-height: 100%;
+  perspective: 1100px;
+  filter: drop-shadow(6px 12px 20px rgba(0, 0, 0, 0.16));
+  cursor: default;
 }
 
-#ps-product-canvas {
+#ps-canvas {
   display: block;
-  max-width: 100%;
-  max-height: 100%;
+  vertical-align: top;
 }
 
-.ps-preview-size-label {
+#ps-size-lbl {
   position: absolute;
-  top: -20px;
+  top: -22px;
   left: 50%;
   transform: translateX(-50%);
   font-size: 11px;
-  color: #888;
+  font-weight: 500;
+  color: #aaa;
   white-space: nowrap;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  letter-spacing: 0.04em;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  pointer-events: none;
+}
+
+#ps-loader {
+  position: absolute;
+  inset: 0;
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.9);
+}
+#ps-loader[hidden] { display: none !important; }
+
+.ps-spinner {
+  width: 34px;
+  height: 34px;
+  border: 3px solid #eee;
+  border-top-color: #222;
+  border-radius: 50%;
+  animation: ps-spin 0.7s linear infinite;
+}
+@keyframes ps-spin { to { transform: rotate(360deg); } }
+
+#ps-zoom-btn {
+  position: absolute;
+  bottom: 14px;
+  right: 14px;
+  z-index: 8;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.96);
+  color: #222;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s, transform 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#ps-stage:hover #ps-zoom-btn,
+#ps-stage.ps-zoomed #ps-zoom-btn {
+  opacity: 1;
+  pointer-events: auto;
+}
+#ps-zoom-btn:hover { transform: scale(1.08); }
+
+/* ── View in a room — below gallery ───────────────────────────────────────── */
+#ps-vir-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: 100%;
+  margin: 14px auto 0;
+  padding: 0 28px;
+  height: 48px;
+  background: #fff;
+  color: #111;
+  border: 1.5px solid #d4d4d4;
+  border-radius: 999px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+#ps-vir-btn:hover {
+  background: #fafafa;
+  border-color: #b8b8b8;
+}
+
+/* ── Fullscreen room view (reference lightbox, not dialog box) ────────────── */
+#ps-room-fs {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  background: #111;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.28s ease, visibility 0s linear 0.28s;
+}
+#ps-room-fs.ps-room-open {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition: opacity 0.28s ease, visibility 0s;
+}
+
+#ps-room-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 4;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+}
+#ps-room-close:hover { background: rgba(0, 0, 0, 0.72); }
+
+#ps-room-cv-wrap {
+  position: absolute;
+  inset: 0;
+}
+
+#ps-room-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+}
+#ps-room-canvas:active { cursor: grabbing; }
+
+#ps-closeup-btn {
+  position: absolute;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 4;
+  padding: 0 32px;
+  height: 46px;
+  background: rgba(255, 255, 255, 0.96);
+  color: #111;
+  border: none;
+  border-radius: 999px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.22);
+  transition: transform 0.15s, background 0.15s;
+  white-space: nowrap;
+}
+#ps-closeup-btn:hover {
+  background: #fff;
+  transform: translateX(-50%) scale(1.02);
+}
+
+#ps-room-thumbs {
+  position: absolute;
+  bottom: 88px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 4;
+  display: flex;
+  gap: 8px;
+  padding: 6px 10px;
+  background: rgba(0, 0, 0, 0.38);
+  border-radius: 12px;
+  max-width: calc(100% - 32px);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+#ps-room-thumbs::-webkit-scrollbar { display: none; }
+
+.ps-rthumb {
+  flex-shrink: 0;
+  width: 58px;
+  height: 40px;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 2px solid transparent;
+  padding: 0;
+  background: #333;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.ps-rthumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.ps-rthumb-active { border-color: #fff; }
+
+@media (max-width: 749px) {
+  #ps-stage { min-height: 240px; }
+  #ps-closeup-btn { bottom: 20px; font-size: 13px; }
+  #ps-room-thumbs { bottom: 76px; }
 }

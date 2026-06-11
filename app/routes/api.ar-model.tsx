@@ -4,14 +4,17 @@
 // Returns { glb: "https://...", usdz: "https://..." }
 
 import * as fs from "fs";
-import * as os from "os";
 import * as path from "path";
 import * as https from "https";
 import * as http from "http";
 import * as crypto from "crypto";
+import {
+  AR_MODEL_CACHE_DIR,
+  ensureCacheDir,
+  isValidCachedFile,
+} from "../ar-model-cache.server";
 
-const APP_URL   = (process.env.SHOPIFY_APP_URL || process.env.APP_URL || "http://localhost:3000").replace(/\/$/, "");
-const CACHE_DIR = path.join(os.tmpdir(), "ar-models");
+const CACHE_DIR = AR_MODEL_CACHE_DIR;
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -19,11 +22,40 @@ const CORS = {
   "Access-Control-Allow-Headers": "Content-Type",
 };
 
+function getPublicBaseUrl(request: Request): string {
+  const envUrl = (process.env.SHOPIFY_APP_URL || process.env.APP_URL || "").replace(/\/$/, "");
+  if (envUrl.startsWith("https://")) return envUrl;
+  if (envUrl.startsWith("http://") && !envUrl.includes("localhost")) {
+    return envUrl.replace(/^http:/, "https:");
+  }
+
+  const forwardedHost = request.headers.get("x-forwarded-host");
+  const forwardedProto = request.headers.get("x-forwarded-proto") || "https";
+  if (forwardedHost) {
+    const proto = forwardedProto.split(",")[0].trim();
+    return `${proto}://${forwardedHost.split(",")[0].trim()}`;
+  }
+
+  try {
+    const reqUrl = new URL(request.url);
+    let origin = `${reqUrl.protocol}//${reqUrl.host}`;
+    if (origin.startsWith("http://") && !origin.includes("localhost")) {
+      origin = origin.replace(/^http:/, "https:");
+    }
+    if (origin.startsWith("https://") && !origin.includes("localhost")) return origin;
+    if (envUrl) return envUrl.replace(/^http:/, "https:");
+    return origin;
+  } catch {
+    return envUrl || "https://localhost:3000";
+  }
+}
+
 function errorResponse(message: string, status = 500) {
   return Response.json({ error: message }, { status, headers: CORS });
 }
 
 async function generateAndCache(
+  request: Request,
   imageBuffer: Buffer,
   wCm: number,
   hCm: number,
@@ -32,26 +64,40 @@ async function generateAndCache(
   level = 0,
   pitch = 0,
 ) {
-  fs.mkdirSync(CACHE_DIR, { recursive: true });
+  ensureCacheDir();
 
+  const appUrl   = getPublicBaseUrl(request);
   const hash     = crypto.createHash("md5").update(cacheSeed).digest("hex");
   const glbName  = `${hash}.glb`;
   const usdzName = `${hash}.usdz`;
   const glbPath  = path.join(CACHE_DIR, glbName);
   const usdzPath = path.join(CACHE_DIR, usdzName);
-  const glbUrl   = `${APP_URL}/api/ar-model/file/${glbName}`;
-  const usdzUrl  = `${APP_URL}/api/ar-model/file/${usdzName}`;
+  const glbUrl   = `${appUrl}/api/ar-model/file/${glbName}`;
+  const usdzUrl  = `${appUrl}/api/ar-model/file/${usdzName}`;
 
-  const needsGlb  = !fs.existsSync(glbPath);
-  const needsUsdz = !fs.existsSync(usdzPath);
+  const needsGlb  = !isValidCachedFile(glbPath);
+  const needsUsdz = !isValidCachedFile(usdzPath);
 
   if (needsGlb || needsUsdz) {
     const scene = await createARScene(imageBuffer, wCm, hCm, angle, level, pitch);
-    if (needsGlb)  fs.writeFileSync(glbPath,  await exportGLB(scene));
-    if (needsUsdz) fs.writeFileSync(usdzPath, await exportUSDZ(scene));
+    if (needsGlb) {
+      const glbBuf = await exportGLB(scene);
+      if (glbBuf.length < 512) throw new Error("GLB export produced an empty file");
+      fs.writeFileSync(glbPath, glbBuf);
+    }
+    if (needsUsdz) {
+      const usdzBuf = await exportUSDZ(scene);
+      if (usdzBuf.length < 512) throw new Error("USDZ export produced an empty file");
+      fs.writeFileSync(usdzPath, usdzBuf);
+    }
   }
 
-  return Response.json({ glb: glbUrl, usdz: usdzUrl }, { headers: CORS });
+  return Response.json({
+    glb: glbUrl,
+    usdz: usdzUrl,
+    glbPath: `/api/ar-model/file/${glbName}`,
+    usdzPath: `/api/ar-model/file/${usdzName}`,
+  }, { headers: CORS });
 }
 
 function parseDataUrlImage(dataUrl: string): Buffer {
@@ -77,7 +123,7 @@ export async function loader({ request }: { request: Request }) {
   try {
     const imageBuffer = await downloadImage(imgUrl);
     const cacheSeed   = `${imgUrl}-${wCm}-${hCm}`;
-    return await generateAndCache(imageBuffer, wCm, hCm, cacheSeed);
+    return await generateAndCache(request, imageBuffer, wCm, hCm, cacheSeed);
   } catch (err: any) {
     console.error("[ar-model error]", err?.message || err);
     return errorResponse("Failed to generate AR model: " + (err?.message || "unknown"));
@@ -91,30 +137,91 @@ export async function action({ request }: { request: Request }) {
 
   try {
     const body     = await request.json();
-    const dataUrl  = body.image || "";
-    const wCm      = parseFloat(body.w || "60");
-    const hCm      = parseFloat(body.h || "40");
-    const frame     = body.frame || "none";
-    const matting   = body.matting || "none";
-    const sizeScale = body.sizeScale || 1;
-    const angle     = parseFloat(body.angle ?? "0") || 0;
-    const level     = parseFloat(body.level ?? "0") || 0;
-    const pitch     = parseFloat(body.pitch ?? "0") || 0;
+    const dataUrl    = body.image || "";
+    const imgUrl     = body.imgUrl || "";
+    const frameColor = body.frameColor || "";
+    const wCm        = parseFloat(body.w || "60");
+    const hCm        = parseFloat(body.h || "40");
+    const frame      = body.frame || "none";
+    const matting    = body.matting || "none";
+    const sizeScale  = body.sizeScale || 1;
+    const angle      = parseFloat(body.angle ?? "0") || 0;
+    const level      = parseFloat(body.level ?? "0") || 0;
+    const pitch      = parseFloat(body.pitch ?? "0") || 0;
 
-    if (!dataUrl) {
-      return errorResponse("image field required", 400);
+    let imageBuffer: Buffer;
+    if (dataUrl) {
+      imageBuffer = parseDataUrlImage(dataUrl);
+    } else if (imgUrl) {
+      const raw = await downloadImage(imgUrl);
+      imageBuffer = await compositeFramedProductImage(raw, frame, matting, frameColor);
+    } else {
+      return errorResponse("image or imgUrl field required", 400);
     }
 
-    const imageBuffer = parseDataUrlImage(dataUrl);
-    const cacheSeed   = crypto.createHash("md5")
+    const cacheSeed = crypto.createHash("md5")
       .update(imageBuffer)
       .update(`|${wCm}|${hCm}|${frame}|${matting}|${sizeScale}|${angle}|${level}|${pitch}`)
       .digest("hex");
-    return await generateAndCache(imageBuffer, wCm, hCm, cacheSeed, angle, level, pitch);
+    return await generateAndCache(request, imageBuffer, wCm, hCm, cacheSeed, angle, level, pitch);
   } catch (err: any) {
     console.error("[ar-model POST error]", err?.message || err);
     return errorResponse("Failed to generate AR model: " + (err?.message || "unknown"));
   }
+}
+
+const FRAME_COLOR_MAP: Record<string, string> = {
+  white:  "#f5f5f0",
+  black:  "#1a1a1a",
+  brown:  "#6b4c35",
+  gold:   "#c9a84c",
+  gray:   "#9a9a9a",
+  yellow: "#e8c547",
+};
+
+async function compositeFramedProductImage(
+  imageBuffer: Buffer,
+  frame: string,
+  matting: string,
+  frameColor = "",
+): Promise<Buffer> {
+  const { createCanvas, loadImage } = await import("canvas");
+  const img = await loadImage(imageBuffer);
+  const artW = 1024;
+  const imgRatio = img.height / img.width;
+  const artH = Math.round(artW * imgRatio);
+  const matPx = matting === "1" ? Math.max(14, Math.round(artW * 0.085)) : 0;
+  const framePx = frame === "none" ? 0 : Math.max(2, Math.round(artW * 0.011));
+  const color = frameColor || FRAME_COLOR_MAP[frame] || "#1a1a1a";
+  const totalW = artW + matPx * 2 + framePx * 2;
+  const totalH = artH + matPx * 2 + framePx * 2;
+
+  const canvas = createCanvas(totalW, totalH);
+  const ctx = canvas.getContext("2d");
+
+  if (framePx > 0) {
+    ctx.fillStyle = color;
+    ctx.fillRect(0, 0, totalW, totalH);
+  }
+  if (matPx > 0) {
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(framePx, framePx, totalW - framePx * 2, totalH - framePx * 2);
+  }
+
+  let drawW = artW;
+  let drawH = artH;
+  if (imgRatio > drawH / drawW) {
+    drawH = artH;
+    drawW = drawH / imgRatio;
+  } else {
+    drawW = artW;
+    drawH = drawW * imgRatio;
+  }
+  const ox = framePx + matPx + (artW - drawW) / 2;
+  const oy = framePx + matPx + (artH - drawH) / 2;
+  ctx.drawImage(img as any, ox, oy, drawW, drawH);
+
+  return canvas.toBuffer("image/png");
 }
 
 // ── Download image ────────────────────────────────────────────────────────────
