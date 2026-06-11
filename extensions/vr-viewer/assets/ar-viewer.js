@@ -10,9 +10,18 @@
   var IMG_W    = parseFloat(root.dataset.imgW   || '0');
   var IMG_H    = parseFloat(root.dataset.imgH   || '0');
   var BACKEND  = (root.dataset.backend || '').replace(/\/$/, '');
+  var SHOP_DOMAIN = root.dataset.shop || '';
   var WIDTH_CM = parseFloat(root.dataset.width  || '60');
   var HEIGHT_CM = parseFloat(root.dataset.height || '40');
   var PAGE_URL = window.location.href;
+
+  if (!BACKEND) {
+    if (typeof window.Shopify !== 'undefined' && window.Shopify.shop) {
+      BACKEND = 'https://' + window.Shopify.shop + '/apps/ar-preview';
+    } else if (SHOP_DOMAIN) {
+      BACKEND = 'https://' + SHOP_DOMAIN + '/apps/ar-preview';
+    }
+  }
 
   if (IMG.indexOf('//') === 0) IMG = 'https:' + IMG;
   if (IMG_THUMB.indexOf('//') === 0) IMG_THUMB = 'https:' + IMG_THUMB;
@@ -44,25 +53,22 @@
   }
 
   function verifyModelFile(url) {
-    function checkResponse(res) {
-      if (!res.ok) {
-        throw new Error('Model file not reachable (HTTP ' + res.status + '). Check your App backend URL in theme settings.');
-      }
-      var len = parseInt(res.headers.get('Content-Length') || '0', 10);
-      if (!len || len < 512) {
-        throw new Error('Model file is empty (' + len + ' bytes). Try again.');
-      }
-      return url;
-    }
-
+    // Just check the file is reachable — don't check Content-Length,
+    // Railway/Cloudflare stream responses often omit it causing false "empty" errors.
     return fetch(url, { method: 'HEAD', mode: 'cors', cache: 'no-store' })
       .then(function (res) {
-        if (res.status === 405 || res.status === 501 || res.status === 404) {
-          return fetch(url, { method: 'GET', mode: 'cors', cache: 'no-store' });
+        if (res.status === 405 || res.status === 501) {
+          return fetch(url, { method: 'GET', mode: 'cors', cache: 'no-store',
+            headers: { 'Range': 'bytes=0-511' } });
         }
         return res;
       })
-      .then(checkResponse);
+      .then(function (res) {
+        if (!res.ok && res.status !== 206) {
+          throw new Error('AR model not reachable (HTTP ' + res.status + '). Check your backend URL in theme settings.');
+        }
+        return url;
+      });
   }
 
   var productRatio = null;
@@ -923,14 +929,14 @@
     syncPanelUI();
   }
 
-  // ── Drag product ─────────────────────────────────────────────────────────────
+  // ── Drag product on room background ───────────────────────────────────────────
   function enableDrag() {
     var dragging = false;
     var startX, startY, origX, origY;
 
     function onDown(e) {
-      if (e.target.closest('.ar-popover') || e.target.closest('.ar-toolbar') ||
-          e.target.closest('.ar-ui-layer')) return;
+      if (e.touches && e.touches.length > 1) return;
+      if (e.target.closest('.ar-popover') || e.target.closest('.ar-toolbar')) return;
       dragging = true;
       var pt = e.touches ? e.touches[0] : e;
       startX = pt.clientX;
@@ -939,10 +945,16 @@
       origY = state.posY;
       els.productWrap.classList.add('ar-dragging');
       e.preventDefault();
+      e.stopPropagation();
     }
 
     function onMove(e) {
       if (!dragging) return;
+      if (e.touches && e.touches.length > 1) {
+        dragging = false;
+        els.productWrap.classList.remove('ar-dragging');
+        return;
+      }
       var pt = e.touches ? e.touches[0] : e;
       var rect = sceneEl().getBoundingClientRect();
       var dx = ((pt.clientX - startX) / rect.width) * 100;
@@ -950,6 +962,7 @@
       state.posX = Math.max(8, Math.min(92, origX + dx));
       state.posY = Math.max(10, Math.min(85, origY + dy));
       renderViewport();
+      e.preventDefault();
     }
 
     function onUp() {
@@ -963,6 +976,60 @@
     window.addEventListener('touchmove', onMove, { passive: false });
     window.addEventListener('mouseup', onUp);
     window.addEventListener('touchend', onUp);
+  }
+
+  // ── Pinch / wheel zoom (two fingers or scroll) ─────────────────────────────────
+  function enablePinchZoom() {
+    var pinching = false;
+    var initialDist = 0;
+    var initialScale = 1;
+
+    function touchDist(touches) {
+      var dx = touches[0].clientX - touches[1].clientX;
+      var dy = touches[0].clientY - touches[1].clientY;
+      return Math.hypot(dx, dy);
+    }
+
+    function applyScale(scale) {
+      state.sizeScale = Math.max(SIZE_MIN, Math.min(SIZE_MAX, scale));
+      syncSizeIndexFromScale();
+      syncSizeSliderUI();
+      syncSpaceWidthFields();
+      renderViewport();
+    }
+
+    var target = sceneEl();
+    if (!target) return;
+
+    target.addEventListener('touchstart', function (e) {
+      if (e.target.closest('.ar-popover') || e.target.closest('.ar-toolbar') ||
+          e.target.closest('.ar-thumb-strip') || e.target.closest('.ar-size-slider')) return;
+      if (e.touches.length === 2) {
+        pinching = true;
+        initialDist = touchDist(e.touches);
+        initialScale = state.sizeScale;
+        e.preventDefault();
+      }
+    }, { passive: false });
+
+    target.addEventListener('touchmove', function (e) {
+      if (!pinching || e.touches.length !== 2) return;
+      if (!initialDist) return;
+      applyScale(initialScale * (touchDist(e.touches) / initialDist));
+      e.preventDefault();
+    }, { passive: false });
+
+    target.addEventListener('touchend', function (e) {
+      if (e.touches.length < 2) pinching = false;
+    });
+
+    target.addEventListener('wheel', function (e) {
+      if (e.target.closest('.ar-popover') || e.target.closest('.ar-toolbar') ||
+          e.target.closest('.ar-size-slider')) return;
+      var delta = e.deltaY > 0 ? -0.05 : 0.05;
+      applyScale(state.sizeScale + delta);
+      e.preventDefault();
+    }, { passive: false });
   }
 
   function frameById(id) {
@@ -1127,25 +1194,17 @@
     return canvas.toDataURL('image/png');
   }
 
-  // Build product texture with frame + matting for AR GLB generation
+  // Build AR payload — server composites frame + matting (reliable on all devices)
   function buildARProductImage() {
     var dims = getARDimensions();
     var frame = frameById(state.frameId);
-
-    return loadProductImageForCanvas().then(function (prodImg) {
-      try {
-        return {
-          dataUrl: renderARCompositeDataUrl(prodImg),
-          dims: dims
-        };
-      } catch (canvasErr) {
-        console.warn('[AR Viewer] Canvas export failed, using server composite:', canvasErr);
-        return {
-          imgUrl: toSecureUrl(IMG),
-          frameColor: frame.id === 'none' ? '' : frame.color,
-          dims: dims
-        };
-      }
+    if (!toSecureUrl(IMG)) {
+      return Promise.reject(new Error('Product image is missing'));
+    }
+    return Promise.resolve({
+      imgUrl: toSecureUrl(IMG),
+      frameColor: frame.id === 'none' ? '' : frame.color,
+      dims: dims
     });
   }
 
@@ -1310,38 +1369,42 @@
 
   // iOS — open same-origin AR page on the app backend (Quick Look requires this)
   function launchIOSARPage(data) {
+    var glbPath  = extractModelPath(data.glbPath  || data.glb);
     var usdzPath = extractModelPath(data.usdzPath || data.usdz);
-    var glbPath = extractModelPath(data.glbPath || data.glb);
+
     if (!usdzPath) {
       return Promise.reject(new Error('No USDZ model path returned'));
     }
 
+    var absUsdz = toSecureUrl(BACKEND) + usdzPath;
+    var absGlb  = glbPath ? toSecureUrl(BACKEND) + glbPath : '';
+
     setARLoadingMessage('Checking AR model…');
-    return verifyModelFile(toSecureUrl(BACKEND) + usdzPath)
+    return verifyModelFile(absUsdz)
       .then(function () {
         setARLoadingMessage('Opening AR…');
-        var arPage = toSecureUrl(BACKEND) + '/ar/view' +
-          '?usdzPath=' + encodeURIComponent(usdzPath) +
-          (glbPath ? '&glbPath=' + encodeURIComponent(glbPath) : '') +
-          '&title=' + encodeURIComponent(TITLE);
+        var arPage = toSecureUrl(BACKEND) + '/ar/view?title=' + encodeURIComponent(TITLE) +
+          '&usdz=' + encodeURIComponent(absUsdz);
+        if (absGlb) arPage += '&glb=' + encodeURIComponent(absGlb);
         window.location.href = arPage;
       });
   }
 
   // Android — model-viewer page with GLB + Scene Viewer
   function launchAR(data) {
-    var glbPath = extractModelPath(data.glbPath || data.glb);
+    var glbPath  = extractModelPath(data.glbPath  || data.glb);
     var usdzPath = extractModelPath(data.usdzPath || data.usdz);
+
     if (!glbPath) {
-      throw new Error('Invalid AR model URL');
+      throw new Error('No GLB model path returned from server');
     }
 
-    var arPage = toSecureUrl(BACKEND) + '/ar/view' +
-      '?glbPath=' + encodeURIComponent(glbPath) +
-      '&title=' + encodeURIComponent(TITLE);
-    if (usdzPath) {
-      arPage += '&usdzPath=' + encodeURIComponent(usdzPath);
-    }
+    var absGlb  = toSecureUrl(BACKEND) + glbPath;
+    var absUsdz = usdzPath ? toSecureUrl(BACKEND) + usdzPath : '';
+
+    var arPage = toSecureUrl(BACKEND) + '/ar/view?title=' + encodeURIComponent(TITLE) +
+      '&glb=' + encodeURIComponent(absGlb);
+    if (absUsdz) arPage += '&usdz=' + encodeURIComponent(absUsdz);
     window.location.href = arPage;
   }
 
@@ -1356,7 +1419,7 @@
   function fetchAndLaunch() {
     if (arInProgress) return;
     if (!BACKEND) {
-      alert('Backend URL is not set. Go to Themes → Customize → VR Viewer block → add your app URL.');
+      alert('AR backend is not configured. Re-save the theme or set the App backend URL in VR Viewer block settings.');
       return;
     }
     if (isMobile) {
@@ -1411,6 +1474,7 @@
       })
       .catch(function (err) {
         if (els.loading) els.loading.hidden = true;
+        arInProgress = false;   // always reset so button works again
         setARButtonLoading(false);
         console.error('[AR Viewer]', err);
         alert('Could not load AR model: ' + err.message);
@@ -1626,6 +1690,7 @@
     });
 
     enableDrag();
+    enablePinchZoom();
     enableSizeSlider();
     syncCompactLayout();
     if (!window.__arCompactResizeBound) {

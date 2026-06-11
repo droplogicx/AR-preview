@@ -17,6 +17,7 @@ function fileHeaders(ext: string, byteLength: number): Record<string, string> {
     "Content-Type":                  MIME[ext],
     "Access-Control-Allow-Origin":   "*",
     "Access-Control-Allow-Methods":  "GET, HEAD, OPTIONS",
+    "Access-Control-Allow-Headers":  "Content-Type, Range",
     "Access-Control-Expose-Headers": "Content-Length, Content-Type",
     "Cache-Control":                 "public, max-age=86400",
     "Content-Length":                String(byteLength),

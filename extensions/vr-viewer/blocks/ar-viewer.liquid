@@ -11,6 +11,10 @@
   {% assign title  = product.title | escape %}
   {% assign width  = product.metafields.ar_viewer.width_cm  | default: '60' %}
   {% assign height = product.metafields.ar_viewer.height_cm | default: '40' %}
+  {% assign backend = block.settings.backend_url | strip %}
+  {% if backend == blank %}
+    {% assign backend = 'https://' | append: shop.permanent_domain | append: '/apps/ar-preview' %}
+  {% endif %}
 
   <div id="ar-root"
     data-title="{{ title }}"
@@ -18,7 +22,8 @@
     data-img-thumb="{{ img_thumb }}"
     data-img-w="{{ feat.width | default: 0 }}"
     data-img-h="{{ feat.height | default: 0 }}"
-    data-backend="{{ block.settings.backend_url | escape }}"
+    data-backend="{{ backend | escape }}"
+    data-shop="{{ shop.permanent_domain | escape }}"
     data-width="{{ width }}"
     data-height="{{ height }}"
     data-room-0="{{ 'room-living-2.jpg' | asset_url }}"
@@ -59,7 +64,7 @@
       "type": "text",
       "id": "backend_url",
       "label": "App backend URL",
-      "info": "Your Shopify app tunnel URL (required for View in AR)."
+      "info": "For mobile testing: paste your Cloudflare tunnel URL from 'shopify app dev' (e.g. https://xxx.trycloudflare.com). Leave blank to use /apps/ar-preview on your store."
     }
   ]
 }

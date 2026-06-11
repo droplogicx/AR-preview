@@ -161,7 +161,7 @@ export async function action({ request }: { request: Request }) {
 
     const cacheSeed = crypto.createHash("md5")
       .update(imageBuffer)
-      .update(`|${wCm}|${hCm}|${frame}|${matting}|${sizeScale}|${angle}|${level}|${pitch}`)
+      .update(`|${wCm}|${hCm}|${frame}|${matting}|${sizeScale}|${angle}|${level}|${pitch}|wall-v3`)
       .digest("hex");
     return await generateAndCache(request, imageBuffer, wCm, hCm, cacheSeed, angle, level, pitch);
   } catch (err: any) {
@@ -321,20 +321,29 @@ async function createARScene(
   const imgAspect = img.width / img.height;
   const hFromImg  = wM / imgAspect;
   const finalH    = hFromImg > 0 ? hFromImg : hM;
-  const depthM    = 0.018;
+  const depthM    = 0.002;
 
   const texture = new THREE.CanvasTexture(canvas as any);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.flipY      = true;
   texture.needsUpdate = true;
 
-  const material = new THREE.MeshStandardMaterial({
+  const edgeMat = new THREE.MeshStandardMaterial({
+    color:     0x222222,
+    roughness: 0.95,
+    metalness: 0.0,
+  });
+  const frontMat = new THREE.MeshStandardMaterial({
     map:       texture,
     roughness: 0.85,
     metalness: 0.0,
   });
 
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(wM, finalH, depthM), material);
+  // Thin box: image on +Z (faces room), -Z flat against the wall.
+  const mesh = new THREE.Mesh(
+    new THREE.BoxGeometry(wM, finalH, depthM),
+    [edgeMat, edgeMat, edgeMat, edgeMat, frontMat, edgeMat],
+  );
   mesh.rotation.order = "YXZ";
   mesh.rotation.y = THREE.MathUtils.degToRad(angleDeg);
   mesh.rotation.x = THREE.MathUtils.degToRad(pitchDeg);
@@ -371,7 +380,7 @@ async function exportUSDZ(scene: Awaited<ReturnType<typeof createARScene>>): Pro
     includeAnchoringProperties: true,
     ar: {
       anchoring: { type: "plane" },
-      planeAnchoring: { alignment: "horizontal" },
+      planeAnchoring: { alignment: "vertical" },
     },
   });
   return Buffer.from(arrayBuffer);
