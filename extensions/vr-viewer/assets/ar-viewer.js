@@ -34,43 +34,6 @@
     return url;
   }
 
-  // Always resolve model files against the theme backend URL (public tunnel)
-  function resolveModelUrl(urlOrPath) {
-    if (!urlOrPath) return '';
-    var path = String(urlOrPath);
-    if (path.indexOf('/api/ar-model/file/') >= 0) {
-      path = path.slice(path.indexOf('/api/ar-model/file/'));
-    } else if (path.indexOf('https://') === 0 || path.indexOf('http://') === 0) {
-      try {
-        var parsed = new URL(path);
-        path = parsed.pathname;
-      } catch (e) {
-        return toSecureUrl(path);
-      }
-    }
-    if (path.charAt(0) !== '/') path = '/' + path;
-    return toSecureUrl(BACKEND) + path;
-  }
-
-  function verifyModelFile(url) {
-    // Just check the file is reachable — don't check Content-Length,
-    // Railway/Cloudflare stream responses often omit it causing false "empty" errors.
-    return fetch(url, { method: 'HEAD', mode: 'cors', cache: 'no-store' })
-      .then(function (res) {
-        if (res.status === 405 || res.status === 501) {
-          return fetch(url, { method: 'GET', mode: 'cors', cache: 'no-store',
-            headers: { 'Range': 'bytes=0-511' } });
-        }
-        return res;
-      })
-      .then(function (res) {
-        if (!res.ok && res.status !== 206) {
-          throw new Error('AR model not reachable (HTTP ' + res.status + '). Check your backend URL in theme settings.');
-        }
-        return url;
-      });
-  }
-
   var productRatio = null;
 
   var ua        = navigator.userAgent || '';
@@ -238,29 +201,36 @@
   ];
 
   var MAT_COLOR = '#ffffff';
-  var MAT_RATIO = 0.085;
-  var MAT_MIN_PX = 10;
-  var FRAME_RATIO = 0.011;
-  var FRAME_MIN_PX = 2;
+  var MAT_INCH_CM = 2.54;
+  var FRAME_CM = 1.5;
   var SIZE_MIN = 0.35;
   var SIZE_MAX = 1.85;
 
-  function matPaddingPx(artW) {
-    return state.matting === '1' ? Math.max(MAT_MIN_PX, artW * MAT_RATIO) : 0;
+  function outerSizeCm() {
+    var w = WIDTH_CM * state.sizeScale;
+    return { w: w, h: w * getProductRatio() };
   }
 
-  function frameBorderPx(artW) {
-    return state.frameId === 'none' ? 0 : Math.max(FRAME_MIN_PX, artW * FRAME_RATIO);
+  function matPaddingPx(outerPx, outerCm) {
+    if (state.frameId === 'none' || state.matting !== '1') return 0;
+    return Math.max(4, Math.round((MAT_INCH_CM / outerCm) * outerPx));
+  }
+
+  function frameBorderPx(outerPx, outerCm) {
+    if (state.frameId === 'none') return 0;
+    return Math.max(4, Math.round((FRAME_CM / outerCm) * outerPx));
   }
 
   var FRAME_COLORS = [
-    { id: 'none',  color: 'transparent', label: 'None' },
-    { id: 'white', color: '#f5f5f0',     label: 'White' },
-    { id: 'black', color: '#1a1a1a',     label: 'Black' },
-    { id: 'brown', color: '#6b4c35',     label: 'Brown' },
-    { id: 'gold',  color: '#c9a84c',     label: 'Gold' },
-    { id: 'gray',  color: '#9a9a9a',     label: 'Gray' },
-    { id: 'yellow',color: '#e8c547',     label: 'Yellow' }
+    { id: 'none',    color: 'transparent', label: 'None' },
+    { id: 'canvas',  color: '#ffffff',     label: 'Canvas' },
+    { id: 'black',   color: '#1a1a1a',     label: 'Black' },
+    { id: 'white',   color: '#f5f5f0',     label: 'White' },
+    { id: 'acrylic', color: '#b8b8b8',     label: 'Acrylic' },
+    { id: 'oak',     color: '#c4a574',     label: 'Oak' },
+    { id: 'walnut',  color: '#5c4033',     label: 'Walnut' },
+    { id: 'gold',    color: '#d4af37',     label: 'Gold' },
+    { id: 'silver',  color: '#a0a0a0',     label: 'Silver' }
   ];
 
   var CM_PER_FOOT = 30.48;
@@ -500,11 +470,11 @@
     }).join('');
 
     var frameSwatches = FRAME_COLORS.map(function (f) {
-      var style = f.id === 'none'
-        ? 'background:repeating-conic-gradient(#ddd 0% 25%,#fff 0% 50%) 0 0/8px 8px'
-        : 'background:' + f.color;
-      return '<button type="button" class="ar-swatch' + (state.frameId === f.id ? ' ar-active' : '') + '"' +
-        ' data-frame="' + f.id + '" title="' + f.label + '" style="' + style + '"></button>';
+      var extraCls = f.id === 'none' ? ' ar-swatch-none' : '';
+      var style = f.id === 'none' ? '' : 'background:' + f.color;
+      return '<button type="button" class="ar-swatch' + extraCls + (state.frameId === f.id ? ' ar-active' : '') + '"' +
+        ' data-frame="' + f.id + '" title="' + f.label + '"' +
+        (style ? ' style="' + style + '"' : '') + '></button>';
     }).join('');
 
     var thumbs = buildThumbsHtml();
@@ -595,8 +565,9 @@
                 '</button>' +
                 '<div class="ar-popover ar-customize-popover' + (state.activePanel === 'customize' ? ' ar-open' : '') + '" id="ar-customize-panel">' +
                   '<label class="ar-field">Size<select id="ar-size">' + sizeOpts + '</select></label>' +
-                  '<div class="ar-field"><span class="ar-field-label">Frame</span><div class="ar-swatches">' + frameSwatches + '</div></div>' +
-                  '<div class="ar-field"><span class="ar-field-label">Matting</span>' +
+                  '<div class="ar-field"><span class="ar-field-label" id="ar-frame-label">Frame: <strong>None</strong></span><div class="ar-swatches">' + frameSwatches + '</div></div>' +
+                  '<div class="ar-field' + (state.frameId === 'none' ? ' ar-matting-disabled' : '') + '" id="ar-matting-field">' +
+                    '<span class="ar-field-label">Matting</span>' +
                     '<div class="ar-matting-btns">' +
                       '<button type="button" class="ar-mat-btn' + (state.matting === 'none' ? ' ar-active' : '') + '" data-mat="none">None</button>' +
                       '<button type="button" class="ar-mat-btn' + (state.matting === '1' ? ' ar-active' : '') + '" data-mat="1">1"</button>' +
@@ -622,7 +593,7 @@
                   '<span class="ar-save-label">Save</span>' +
                   '<span class="ar-save-icon-slot" aria-hidden="true">' +
                     '<svg class="ar-save-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>' +
-                    '<span class="ar-save-spinner" hidden></span>' +
+                    '<span class="ar-save-spinner" aria-hidden="true"></span>' +
                   '</span>' +
                 '</button>' +
                 '<div class="ar-popover-anchor ar-popover-anchor-right ar-popover-anchor-ar">' +
@@ -630,7 +601,7 @@
                     '<span class="ar-action-label">View in AR</span>' +
                     '<span class="ar-save-icon-slot" aria-hidden="true">' +
                       '<svg class="ar-ar-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M7.24932 3.2763L4.16553 4.98808C3.92503 5.12228 3.7248 5.31837 3.58561 5.55602C3.44643 5.79368 3.37335 6.06424 3.37397 6.33965V9.6603C3.37335 9.93571 3.44643 10.2063 3.58561 10.4439C3.7248 10.6816 3.92503 10.8777 4.16553 11.0119L7.24932 12.7237C7.4789 12.8514 7.73729 12.9185 8.00002 12.9185C8.26276 12.9185 8.52114 12.8514 8.75072 12.7237L11.8345 11.0119C12.075 10.8777 12.2752 10.6816 12.4144 10.4439C12.5536 10.2063 12.6267 9.93571 12.6261 9.6603V6.33965C12.6267 6.06424 12.5536 5.79368 12.4144 5.55602C12.2752 5.31837 12.075 5.12228 11.8345 4.98808L8.75072 3.2763C8.52114 3.14854 8.26276 3.08148 8.00002 3.08148C7.73729 3.08148 7.4789 3.14854 7.24932 3.2763Z" stroke="currentColor" stroke-width="1.5"></path><path d="M12.3128 5.40962L8.00001 8M8.00001 8L3.68726 5.40962M8.00001 8V12.9144" stroke="currentColor" stroke-width="1.5"></path><path d="M15 4.88897V3.33308C15 2.71431 14.7542 2.12088 14.3167 1.68334C13.8791 1.24581 13.2857 1 12.6669 1H10.3331M10.3331 15H12.6669C13.2857 15 13.8791 14.7542 14.3167 14.3167C14.7542 13.8791 15 13.2857 15 12.6669V11.1103M1 11.111V12.6669C1 13.2857 1.24581 13.8791 1.68334 14.3167C2.12088 14.7542 2.71431 15 3.33308 15H5.66692M5.66692 1H3.33308C2.71431 1 2.12088 1.24581 1.68334 1.68334C1.24581 2.12088 1 2.71431 1 3.33308V4.88973" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>' +
-                      '<span class="ar-save-spinner ar-ar-spinner" hidden></span>' +
+                      '<span class="ar-save-spinner ar-ar-spinner" aria-hidden="true"></span>' +
                     '</span>' +
                   '</button>' +
                   '<div class="ar-popover ar-qr-popover' + (state.activePanel === 'ar' ? ' ar-open' : '') + '" id="ar-qr-popover">' +
@@ -802,36 +773,39 @@
     applyWallTint();
 
     var size = productScale();
+    var outerCm = outerSizeCm();
     var frame = frameById(state.frameId);
-    var matPx = matPaddingPx(size.w);
-    var framePx = frameBorderPx(size.w);
-
-    var artW = size.w;
-    var artH = size.h;
-    var totalW = artW + (matPx + framePx) * 2;
-    var totalH = artH + (matPx + framePx) * 2;
+    var framePx = frameBorderPx(size.w, outerCm.w);
+    var framePy = frameBorderPx(size.h, outerCm.h);
+    var matPx = matPaddingPx(size.w, outerCm.w);
+    var matPy = matPaddingPx(size.h, outerCm.h);
 
     els.productWrap.style.left = state.posX + '%';
     els.productWrap.style.top  = state.posY + '%';
-    els.productWrap.style.width  = totalW + 'px';
-    els.productWrap.style.height = totalH + 'px';
+    els.productWrap.style.width  = size.w + 'px';
+    els.productWrap.style.height = size.h + 'px';
 
-    els.productFrame.style.borderWidth = framePx + 'px';
+    els.productFrame.style.boxSizing = 'border-box';
+    els.productFrame.style.borderRadius = '0';
+    els.productFrame.style.borderWidth = framePy + 'px ' + framePx + 'px';
     els.productFrame.style.borderColor = frame.color;
     els.productFrame.style.borderStyle = state.frameId === 'none' ? 'none' : 'solid';
     els.productFrame.style.width  = '100%';
     els.productFrame.style.height = '100%';
 
-    els.productMat.style.padding = matPx + 'px';
-    els.productMat.style.background = state.matting === '1' ? MAT_COLOR : 'transparent';
+    els.productMat.style.boxSizing = 'border-box';
+    els.productMat.style.borderRadius = '0';
+    els.productMat.style.padding = matPy + 'px ' + matPx + 'px';
+    els.productMat.style.background = (state.frameId !== 'none' && state.matting === '1') ? MAT_COLOR : 'transparent';
     els.productMat.style.width  = '100%';
     els.productMat.style.height = '100%';
-    els.productMat.classList.toggle('ar-matted', state.matting === '1');
+    els.productMat.classList.toggle('ar-matted', state.frameId !== 'none' && state.matting === '1');
     els.productFrame.classList.toggle('ar-framed', state.frameId !== 'none');
-    els.productWrap.classList.toggle('ar-wall-piece', state.frameId !== 'none' || state.matting === '1');
+    els.productWrap.classList.toggle('ar-wall-piece', state.frameId !== 'none');
     els.productFrame.classList.toggle('ar-blend', state.frameId === 'none' && state.matting === 'none');
 
-    var transform = 'translate(-50%,-50%) perspective(800px) rotateY(' + state.angle + 'deg) rotateX(' + state.pitch + 'deg) rotateZ(' + state.level + 'deg)';
+    // Flat wall mount — no perspective or rotation, painting sits flush on wall
+    var transform = 'translate(-50%,-50%)';
     els.productWrap.style.transform = transform;
 
     var img = document.getElementById('ar-product-img');
@@ -840,10 +814,30 @@
       img.style.height = '100%';
       img.style.objectFit = 'contain';
       img.style.objectPosition = 'center';
+      img.style.borderRadius = '0';
     }
+    syncCustomizeFrameUI();
     syncSizeSliderUI();
     syncSpaceWidthFields(true);
     syncPaintButton();
+  }
+
+  function syncCustomizeFrameUI() {
+    var frameLabel = document.getElementById('ar-frame-label');
+    if (frameLabel) {
+      frameLabel.innerHTML = 'Frame: <strong>' + frameById(state.frameId).label + '</strong>';
+    }
+    var matField = document.getElementById('ar-matting-field');
+    if (matField) {
+      matField.classList.toggle('ar-matting-disabled', state.frameId === 'none');
+    }
+    if (state.frameId === 'none' && state.matting !== 'none') {
+      state.matting = 'none';
+    }
+    roomEl.querySelectorAll('.ar-mat-btn').forEach(function (btn) {
+      btn.disabled = state.frameId === 'none';
+      btn.classList.toggle('ar-active', btn.dataset.mat === state.matting);
+    });
   }
 
   function syncPanelUI() {
@@ -959,8 +953,10 @@
       var rect = sceneEl().getBoundingClientRect();
       var dx = ((pt.clientX - startX) / rect.width) * 100;
       var dy = ((pt.clientY - startY) / rect.height) * 100;
-      state.posX = Math.max(8, Math.min(92, origX + dx));
-      state.posY = Math.max(10, Math.min(85, origY + dy));
+      // Constrain to wall area so painting stays on the wall
+      var wall = currentWall();
+      state.posX = Math.max(wall.left + 5, Math.min(wall.left + wall.width  - 5, origX + dx));
+      state.posY = Math.max(wall.top  + 5, Math.min(wall.top  + wall.height - 5, origY + dy));
       renderViewport();
       e.preventDefault();
     }
@@ -1039,24 +1035,25 @@
     return FRAME_COLORS[0];
   }
 
-  function paintFramedArt(ctx, artW, artH, prodImg, scaleX, scaleY) {
-    var matPx = matPaddingPx(artW);
-    var framePx = frameBorderPx(artW);
+  function paintFramedArt(ctx, outerW, outerH, prodImg, scaleX, scaleY) {
+    var outerCm = outerSizeCm();
+    var framePx = frameBorderPx(outerW, outerCm.w);
+    var framePy = frameBorderPx(outerH, outerCm.h);
+    var matPx = matPaddingPx(outerW, outerCm.w);
+    var matPy = matPaddingPx(outerH, outerCm.h);
     var frame = frameById(state.frameId);
-    var matSX = matPx * scaleX;
-    var matSY = matPx * scaleY;
     var frameSX = framePx * scaleX;
-    var frameSY = framePx * scaleY;
-    var artWsx = artW * scaleX;
-    var artHsy = artH * scaleY;
-    var totalW = artWsx + (matSX + frameSX) * 2;
-    var totalH = artHsy + (matSY + frameSY) * 2;
+    var frameSY = framePy * scaleY;
+    var matSX = matPx * scaleX;
+    var matSY = matPy * scaleY;
+    var totalW = outerW * scaleX;
+    var totalH = outerH * scaleY;
 
     if (framePx > 0) {
       ctx.fillStyle = frame.color;
       ctx.fillRect(-totalW / 2, -totalH / 2, totalW, totalH);
     }
-    if (matPx > 0) {
+    if (matPx > 0 || matPy > 0) {
       ctx.fillStyle = MAT_COLOR;
       ctx.fillRect(
         -totalW / 2 + frameSX,
@@ -1065,14 +1062,19 @@
         totalH - frameSY * 2
       );
     }
+
+    var innerW = totalW - (frameSX + matSX) * 2;
+    var innerH = totalH - (frameSY + matSY) * 2;
+    if (innerW <= 0 || innerH <= 0) return { totalW: totalW, totalH: totalH, matPx: matPx, framePx: framePx };
+
     var imgRatio = getProductRatio();
-    var drawW = artWsx;
-    var drawH = artHsy;
+    var drawW = innerW;
+    var drawH = innerH;
     if (imgRatio > drawH / drawW) {
-      drawH = artHsy;
+      drawH = innerH;
       drawW = drawH / imgRatio;
     } else {
-      drawW = artWsx;
+      drawW = innerW;
       drawH = drawW * imgRatio;
     }
     ctx.drawImage(prodImg, -drawW / 2, -drawH / 2, drawW, drawH);
@@ -1082,20 +1084,12 @@
   function drawProductOnCanvas(ctx, exportW, exportH, scaleX, scaleY) {
     var prodImg = document.getElementById('ar-product-img');
     var size = productScale();
-    var matPx = matPaddingPx(size.w);
-    var framePx = frameBorderPx(size.w);
     var cx = (state.posX / 100) * exportW;
     var cy = (state.posY / 100) * exportH;
 
     ctx.save();
     ctx.translate(cx, cy);
     ctx.rotate((state.level * Math.PI) / 180);
-    if (framePx > 0 || matPx > 0) {
-      ctx.shadowColor = 'rgba(0, 0, 0, 0.38)';
-      ctx.shadowBlur = 10 * scaleX;
-      ctx.shadowOffsetX = 3 * scaleX;
-      ctx.shadowOffsetY = 5 * scaleY;
-    }
     paintFramedArt(ctx, size.w, size.h, prodImg, scaleX, scaleY);
     ctx.restore();
   }
@@ -1110,10 +1104,6 @@
     btn.disabled = on;
     btn.classList.toggle('ar-loading', on);
     btn.setAttribute('aria-busy', on ? 'true' : 'false');
-    var spinner = btn.querySelector('.ar-save-spinner');
-    var icon = btn.querySelector('.ar-save-icon');
-    if (spinner) spinner.hidden = !on;
-    if (icon) icon.hidden = on;
   }
 
   function downloadCanvas(canvas) {
@@ -1176,25 +1166,20 @@
     var imgRatio = getProductRatio();
     var artW = 1024;
     var artH = Math.round(artW * imgRatio);
-    var matPx = matPaddingPx(artW);
-    var framePx = frameBorderPx(artW);
-    var totalW = Math.round(artW + matPx * 2 + framePx * 2);
-    var totalH = Math.round(artH + matPx * 2 + framePx * 2);
 
     var canvas = document.createElement('canvas');
-    canvas.width = totalW;
-    canvas.height = totalH;
+    canvas.width = artW;
+    canvas.height = artH;
     var ctx = canvas.getContext('2d');
 
     ctx.save();
-    ctx.translate(totalW / 2, totalH / 2);
+    ctx.translate(artW / 2, artH / 2);
     paintFramedArt(ctx, artW, artH, prodImg, 1, 1);
     ctx.restore();
 
     return canvas.toDataURL('image/png');
   }
 
-  // Build AR payload — server composites frame + matting (reliable on all devices)
   function buildARProductImage() {
     var dims = getARDimensions();
     var frame = frameById(state.frameId);
@@ -1215,26 +1200,18 @@
     btn.disabled = on;
     btn.classList.toggle('ar-loading', on);
     btn.setAttribute('aria-busy', on ? 'true' : 'false');
-    var spinner = btn.querySelector('.ar-ar-spinner');
-    var icon = btn.querySelector('.ar-ar-icon');
-    if (spinner) spinner.hidden = !on;
-    if (icon) icon.hidden = on;
+  }
+
+  function resetARButtonThenNavigate(url) {
+    setARButtonLoading(false);
+    requestAnimationFrame(function () {
+      window.location.href = url;
+    });
   }
 
   function getARDimensions() {
-    var w = WIDTH_CM * state.sizeScale;
-    var h = HEIGHT_CM * state.sizeScale;
-    if (state.matting === '1') {
-      var matCm = 2.54;
-      w += matCm * 2;
-      h += matCm * 2;
-    }
-    if (state.frameId !== 'none') {
-      var frameCm = 1.5;
-      w += frameCm * 2;
-      h += frameCm * 2;
-    }
-    return { w: w, h: h };
+    var outer = outerSizeCm();
+    return { w: outer.w, h: outer.h };
   }
 
 
@@ -1367,7 +1344,6 @@
     return '';
   }
 
-  // iOS — open same-origin AR page on the app backend (Quick Look requires this)
   function launchIOSARPage(data) {
     var glbPath  = extractModelPath(data.glbPath  || data.glb);
     var usdzPath = extractModelPath(data.usdzPath || data.usdz);
@@ -1376,21 +1352,13 @@
       return Promise.reject(new Error('No USDZ model path returned'));
     }
 
-    var absUsdz = toSecureUrl(BACKEND) + usdzPath;
-    var absGlb  = glbPath ? toSecureUrl(BACKEND) + glbPath : '';
-
-    setARLoadingMessage('Checking AR model…');
-    return verifyModelFile(absUsdz)
-      .then(function () {
-        setARLoadingMessage('Opening AR…');
-        var arPage = toSecureUrl(BACKEND) + '/ar/view?title=' + encodeURIComponent(TITLE) +
-          '&usdz=' + encodeURIComponent(absUsdz);
-        if (absGlb) arPage += '&glb=' + encodeURIComponent(absGlb);
-        window.location.href = arPage;
-      });
+    var arPage = toSecureUrl(BACKEND) + '/ar/view?title=' + encodeURIComponent(TITLE) +
+      '&usdzPath=' + encodeURIComponent(usdzPath);
+    if (glbPath) arPage += '&glbPath=' + encodeURIComponent(glbPath);
+    resetARButtonThenNavigate(arPage);
+    return Promise.resolve();
   }
 
-  // Android — model-viewer page with GLB + Scene Viewer
   function launchAR(data) {
     var glbPath  = extractModelPath(data.glbPath  || data.glb);
     var usdzPath = extractModelPath(data.usdzPath || data.usdz);
@@ -1399,13 +1367,10 @@
       throw new Error('No GLB model path returned from server');
     }
 
-    var absGlb  = toSecureUrl(BACKEND) + glbPath;
-    var absUsdz = usdzPath ? toSecureUrl(BACKEND) + usdzPath : '';
-
     var arPage = toSecureUrl(BACKEND) + '/ar/view?title=' + encodeURIComponent(TITLE) +
-      '&glb=' + encodeURIComponent(absGlb);
-    if (absUsdz) arPage += '&usdz=' + encodeURIComponent(absUsdz);
-    window.location.href = arPage;
+      '&glbPath=' + encodeURIComponent(glbPath);
+    if (usdzPath) arPage += '&usdzPath=' + encodeURIComponent(usdzPath);
+    resetARButtonThenNavigate(arPage);
   }
 
   function setARLoadingMessage(msg) {
@@ -1430,7 +1395,7 @@
 
     buildARProductImage()
       .then(function (payload) {
-        if (!payload.dataUrl && !payload.imgUrl) {
+        if (!payload.imgUrl) {
           throw new Error('Could not prepare product image for AR');
         }
         setARLoadingMessage('Building 3D model…');
@@ -1439,13 +1404,12 @@
           mode: 'cors',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            image: payload.dataUrl || '',
-            imgUrl: payload.imgUrl || '',
+            imgUrl: payload.imgUrl,
             frameColor: payload.frameColor || '',
             w: payload.dims.w,
             h: payload.dims.h,
             frame: state.frameId,
-            matting: state.matting,
+            matting: state.frameId === 'none' ? 'none' : state.matting,
             sizeScale: state.sizeScale,
             angle: state.angle,
             level: state.level,
@@ -1474,7 +1438,7 @@
       })
       .catch(function (err) {
         if (els.loading) els.loading.hidden = true;
-        arInProgress = false;   // always reset so button works again
+        arInProgress = false;
         setARButtonLoading(false);
         console.error('[AR Viewer]', err);
         alert('Could not load AR model: ' + err.message);
@@ -1628,13 +1592,18 @@
     roomEl.querySelectorAll('.ar-swatch').forEach(function (btn) {
       btn.addEventListener('click', function () {
         state.frameId = btn.dataset.frame;
+        if (state.frameId === 'none') {
+          state.matting = 'none';
+        }
         roomEl.querySelectorAll('.ar-swatch').forEach(function (b) { b.classList.remove('ar-active'); });
         btn.classList.add('ar-active');
+        syncCustomizeFrameUI();
         renderViewport();
       });
     });
     roomEl.querySelectorAll('.ar-mat-btn').forEach(function (btn) {
       btn.addEventListener('click', function () {
+        if (state.frameId === 'none') return;
         state.matting = btn.dataset.mat;
         roomEl.querySelectorAll('.ar-mat-btn').forEach(function (b) { b.classList.remove('ar-active'); });
         btn.classList.add('ar-active');

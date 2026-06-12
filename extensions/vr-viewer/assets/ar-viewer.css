@@ -495,10 +495,6 @@
   background: transparent;
   overflow: visible;
 }
-.ar-product-wrap.ar-wall-piece {
-  filter: drop-shadow(3px 5px 6px rgba(0, 0, 0, 0.38))
-          drop-shadow(1px 2px 3px rgba(0, 0, 0, 0.22));
-}
 .ar-product-wrap.ar-dragging {
   cursor: grabbing;
 }
@@ -567,9 +563,11 @@
   overflow: hidden;
   box-sizing: border-box;
   background: transparent;
+  border-radius: 0;
 }
 .ar-product-frame.ar-framed {
   border-style: solid;
+  border-radius: 0;
 }
 .ar-product-mat {
   display: block;
@@ -577,6 +575,7 @@
   height: 100%;
   line-height: 0;
   box-sizing: border-box;
+  border-radius: 0;
 }
 .ar-product-mat.ar-matted {
   background: #fff;
@@ -589,10 +588,11 @@
   object-position: center;
   pointer-events: none;
   background: transparent;
+  border-radius: 0;
 }
 /* Hide white studio background when no frame/matting */
 .ar-product-frame.ar-blend .ar-product-mat img {
-  mix-blend-mode: multiply;
+  mix-blend-mode: normal;
 }
 
 /* ── Settings / Help popovers (above bottom-left buttons) ───────────────────── */
@@ -796,8 +796,27 @@
   border-radius: 50%;
   border: 2px solid transparent;
   cursor: pointer; padding: 0;
+  position: relative;
+}
+.ar-swatch.ar-swatch-none {
+  background: #fff;
+  border-color: #bbb;
+}
+.ar-swatch.ar-swatch-none::before {
+  content: '';
+  position: absolute;
+  top: 50%; left: 15%; right: 15%;
+  height: 1.5px;
+  background: #888;
+  transform: rotate(-45deg);
+  pointer-events: none;
 }
 .ar-swatch.ar-active { border-color: #111; box-shadow: 0 0 0 2px #fff, 0 0 0 3px #111; }
+.ar-matting-disabled .ar-mat-btn {
+  opacity: 0.4;
+  pointer-events: none;
+  cursor: not-allowed;
+}
 .ar-matting-btns { display: flex; gap: 6px; }
 .ar-mat-btn {
   flex: 1; padding: 6px 10px;
@@ -897,19 +916,24 @@
   width: 18px;
   height: 18px;
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .ar-save-icon-slot .ar-save-icon,
-.ar-save-icon-slot .ar-save-spinner {
-  position: absolute;
-  inset: 0;
-  margin: auto;
-}
-.ar-save-icon-slot .ar-save-icon {
+.ar-save-icon-slot .ar-ar-icon {
   width: 18px;
   height: 18px;
   display: block;
+  flex-shrink: 0;
 }
-.ar-save-spinner {
+.ar-save-icon-slot .ar-ar-icon {
+  width: 16px;
+  height: 16px;
+}
+.ar-save-icon-slot .ar-save-spinner,
+.ar-save-icon-slot .ar-ar-spinner {
+  display: none;
   width: 18px;
   height: 18px;
   border: 2px solid rgba(0, 0, 0, 0.12);
@@ -917,18 +941,15 @@
   border-radius: 50%;
   animation: ar-spin 0.7s linear infinite;
   box-sizing: border-box;
+  flex-shrink: 0;
 }
-.ar-save-icon-slot .ar-save-spinner[hidden],
-.ar-save-icon-slot .ar-save-icon[hidden],
-.ar-save-icon-slot .ar-ar-icon[hidden] {
-  visibility: hidden;
-  opacity: 0;
-  pointer-events: none;
+.ar-action-btn.ar-loading .ar-save-icon,
+.ar-action-btn.ar-loading .ar-ar-icon {
+  display: none !important;
 }
-.ar-save-icon-slot .ar-ar-icon {
-  width: 16px;
-  height: 16px;
-  display: block;
+.ar-action-btn.ar-loading .ar-save-spinner,
+.ar-action-btn.ar-loading .ar-ar-spinner {
+  display: block !important;
 }
 
 .ar-action-ar { font-weight: 600; }

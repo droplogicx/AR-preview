@@ -54,6 +54,9 @@ function errorResponse(message: string, status = 500) {
   return Response.json({ error: message }, { status, headers: CORS });
 }
 
+/** Visible frame depth in AR (~1 inch). */
+const FRAME_DEPTH_M = 2.54 / 100;
+
 async function generateAndCache(
   request: Request,
   imageBuffer: Buffer,
@@ -63,6 +66,7 @@ async function generateAndCache(
   angle = 0,
   level = 0,
   pitch = 0,
+  edgeColor = "#3d2b1f",
 ) {
   ensureCacheDir();
 
@@ -79,7 +83,7 @@ async function generateAndCache(
   const needsUsdz = !isValidCachedFile(usdzPath);
 
   if (needsGlb || needsUsdz) {
-    const scene = await createARScene(imageBuffer, wCm, hCm, angle, level, pitch);
+    const scene = await createARScene(imageBuffer, wCm, hCm, angle, level, pitch, edgeColor);
     if (needsGlb) {
       const glbBuf = await exportGLB(scene);
       if (glbBuf.length < 512) throw new Error("GLB export produced an empty file");
@@ -122,7 +126,7 @@ export async function loader({ request }: { request: Request }) {
 
   try {
     const imageBuffer = await downloadImage(imgUrl);
-    const cacheSeed   = `${imgUrl}-${wCm}-${hCm}`;
+    const cacheSeed   = `${imgUrl}-${wCm}-${hCm}-wall-v9`;
     return await generateAndCache(request, imageBuffer, wCm, hCm, cacheSeed);
   } catch (err: any) {
     console.error("[ar-model error]", err?.message || err);
@@ -144,26 +148,30 @@ export async function action({ request }: { request: Request }) {
     const hCm        = parseFloat(body.h || "40");
     const frame      = body.frame || "none";
     const matting    = body.matting || "none";
-    const sizeScale  = body.sizeScale || 1;
+    const effectiveMatting = frame === "none" ? "none" : matting;
+    const sizeScale  = parseFloat(body.sizeScale) || 1;
     const angle      = parseFloat(body.angle ?? "0") || 0;
     const level      = parseFloat(body.level ?? "0") || 0;
     const pitch      = parseFloat(body.pitch ?? "0") || 0;
+    const outerWCm   = wCm * sizeScale;
+    const outerHCm   = hCm * sizeScale;
 
     let imageBuffer: Buffer;
     if (dataUrl) {
       imageBuffer = parseDataUrlImage(dataUrl);
     } else if (imgUrl) {
       const raw = await downloadImage(imgUrl);
-      imageBuffer = await compositeFramedProductImage(raw, frame, matting, frameColor);
+      imageBuffer = await compositeFramedProductImage(raw, frame, effectiveMatting, frameColor, outerWCm, outerHCm);
     } else {
       return errorResponse("image or imgUrl field required", 400);
     }
 
     const cacheSeed = crypto.createHash("md5")
       .update(imageBuffer)
-      .update(`|${wCm}|${hCm}|${frame}|${matting}|${sizeScale}|${angle}|${level}|${pitch}|wall-v3`)
+      .update(`|${wCm}|${hCm}|${frame}|${effectiveMatting}|${sizeScale}|${angle}|${level}|${pitch}|wall-v10`)
       .digest("hex");
-    return await generateAndCache(request, imageBuffer, wCm, hCm, cacheSeed, angle, level, pitch);
+    const edgeColor = frameColor || FRAME_COLOR_MAP[frame] || "#3d2b1f";
+    return await generateAndCache(request, imageBuffer, wCm, hCm, cacheSeed, angle, level, pitch, edgeColor);
   } catch (err: any) {
     console.error("[ar-model POST error]", err?.message || err);
     return errorResponse("Failed to generate AR model: " + (err?.message || "unknown"));
@@ -171,55 +179,68 @@ export async function action({ request }: { request: Request }) {
 }
 
 const FRAME_COLOR_MAP: Record<string, string> = {
-  white:  "#f5f5f0",
-  black:  "#1a1a1a",
-  brown:  "#6b4c35",
-  gold:   "#c9a84c",
-  gray:   "#9a9a9a",
-  yellow: "#e8c547",
+  canvas:  "#ffffff",
+  black:   "#1a1a1a",
+  white:   "#f5f5f0",
+  acrylic: "#b8b8b8",
+  oak:     "#c4a574",
+  walnut:  "#5c4033",
+  gold:    "#d4af37",
+  silver:  "#a0a0a0",
 };
+
+const MAT_INCH_CM = 2.54;
+const FRAME_CM = 1.5;
 
 async function compositeFramedProductImage(
   imageBuffer: Buffer,
   frame: string,
   matting: string,
   frameColor = "",
+  outerWCm = 60,
+  outerHCm = 40,
 ): Promise<Buffer> {
   const { createCanvas, loadImage } = await import("canvas");
   const img = await loadImage(imageBuffer);
   const artW = 1024;
   const imgRatio = img.height / img.width;
   const artH = Math.round(artW * imgRatio);
-  const matPx = matting === "1" ? Math.max(14, Math.round(artW * 0.085)) : 0;
-  const framePx = frame === "none" ? 0 : Math.max(2, Math.round(artW * 0.011));
-  const color = frameColor || FRAME_COLOR_MAP[frame] || "#1a1a1a";
-  const totalW = artW + matPx * 2 + framePx * 2;
-  const totalH = artH + matPx * 2 + framePx * 2;
+  const outerHCmActual = outerWCm * imgRatio;
 
-  const canvas = createCanvas(totalW, totalH);
+  const framePx = frame === "none" ? 0 : Math.max(6, Math.round((FRAME_CM / outerWCm) * artW));
+  const framePy = frame === "none" ? 0 : Math.max(6, Math.round((FRAME_CM / outerHCmActual) * artH));
+  const matPx = frame !== "none" && matting === "1" ? Math.max(8, Math.round((MAT_INCH_CM / outerWCm) * artW)) : 0;
+  const matPy = frame !== "none" && matting === "1" ? Math.max(8, Math.round((MAT_INCH_CM / outerHCmActual) * artH)) : 0;
+  const color = frameColor || FRAME_COLOR_MAP[frame] || "#1a1a1a";
+
+  const canvas = createCanvas(artW, artH);
   const ctx = canvas.getContext("2d");
 
-  if (framePx > 0) {
+  if (framePx > 0 || framePy > 0) {
     ctx.fillStyle = color;
-    ctx.fillRect(0, 0, totalW, totalH);
+    ctx.fillRect(0, 0, artW, artH);
   }
-  if (matPx > 0) {
+  if (matPx > 0 || matPy > 0) {
     ctx.fillStyle = "#ffffff";
-    ctx.fillRect(framePx, framePx, totalW - framePx * 2, totalH - framePx * 2);
+    ctx.fillRect(framePx, framePy, artW - framePx * 2, artH - framePy * 2);
   }
 
-  let drawW = artW;
-  let drawH = artH;
-  if (imgRatio > drawH / drawW) {
-    drawH = artH;
-    drawW = drawH / imgRatio;
-  } else {
-    drawW = artW;
-    drawH = drawW * imgRatio;
+  const innerW = artW - (framePx + matPx) * 2;
+  const innerH = artH - (framePy + matPy) * 2;
+  if (innerW > 0 && innerH > 0) {
+    let drawW = innerW;
+    let drawH = innerH;
+    if (imgRatio > drawH / drawW) {
+      drawH = innerH;
+      drawW = drawH / imgRatio;
+    } else {
+      drawW = innerW;
+      drawH = drawW * imgRatio;
+    }
+    const ox = framePx + matPx + (innerW - drawW) / 2;
+    const oy = framePy + matPy + (innerH - drawH) / 2;
+    ctx.drawImage(img as any, ox, oy, drawW, drawH);
   }
-  const ox = framePx + matPx + (artW - drawW) / 2;
-  const oy = framePx + matPx + (artH - drawH) / 2;
-  ctx.drawImage(img as any, ox, oy, drawW, drawH);
 
   return canvas.toBuffer("image/png");
 }
@@ -297,6 +318,7 @@ async function createARScene(
   angleDeg = 0,
   levelDeg = 0,
   pitchDeg = 0,
+  edgeColor = "#3d2b1f",
 ) {
   const wM = Math.max(0.01, wCm / 100);
   const hM = Math.max(0.01, hCm / 100);
@@ -321,28 +343,31 @@ async function createARScene(
   const imgAspect = img.width / img.height;
   const hFromImg  = wM / imgAspect;
   const finalH    = hFromImg > 0 ? hFromImg : hM;
-  const depthM    = 0.002;
-
   const texture = new THREE.CanvasTexture(canvas as any);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.flipY      = true;
   texture.needsUpdate = true;
 
-  const edgeMat = new THREE.MeshStandardMaterial({
-    color:     0x222222,
-    roughness: 0.95,
-    metalness: 0.0,
-  });
   const frontMat = new THREE.MeshStandardMaterial({
     map:       texture,
     roughness: 0.85,
     metalness: 0.0,
   });
+  const backMat = new THREE.MeshStandardMaterial({
+    color:     0xffffff,
+    roughness: 0.92,
+    metalness: 0.0,
+  });
+  const edgeMat = new THREE.MeshStandardMaterial({
+    color:     new THREE.Color(edgeColor),
+    roughness: 0.78,
+    metalness: 0.04,
+  });
 
-  // Thin box: image on +Z (faces room), -Z flat against the wall.
+  // Box frame: image on +Z, white back on -Z, ~1" depth on sides (wall AR back against -Z).
   const mesh = new THREE.Mesh(
-    new THREE.BoxGeometry(wM, finalH, depthM),
-    [edgeMat, edgeMat, edgeMat, edgeMat, frontMat, edgeMat],
+    new THREE.BoxGeometry(wM, finalH, FRAME_DEPTH_M),
+    [edgeMat, edgeMat, edgeMat, edgeMat, frontMat, backMat],
   );
   mesh.rotation.order = "YXZ";
   mesh.rotation.y = THREE.MathUtils.degToRad(angleDeg);
@@ -377,11 +402,7 @@ async function exportUSDZ(scene: Awaited<ReturnType<typeof createARScene>>): Pro
   const exporter = new USDZExporter();
   const arrayBuffer = await exporter.parseAsync(scene, {
     quickLookCompatible: true,
-    includeAnchoringProperties: true,
-    ar: {
-      anchoring: { type: "plane" },
-      planeAnchoring: { alignment: "vertical" },
-    },
+    includeAnchoringProperties: false,
   });
   return Buffer.from(arrayBuffer);
 }

@@ -1,148 +1,132 @@
-// GET /ar/view?usdzPath=/api/ar-model/file/x.usdz&glbPath=...&title=Product
-// Mobile AR page — same-origin USDZ for iOS Quick Look
+// GET /ar/view?glbPath=...&title=Product
+// Wall AR — model URLs are same-origin relative paths (works on tunnel + Shopify proxy)
 
 import { normalizeModelPath } from "../ar-model-cache.server";
+
+const APP_PROXY_PREFIX = "/apps/ar-preview";
 
 function isIOSUserAgent(ua: string): boolean {
   return /iphone|ipad|ipod/i.test(ua);
 }
 
-function normalizeModelUrl(raw: string): string {
-  const modelPath = normalizeModelPath(raw);
-  if (modelPath) return modelPath;
+function extractModelPath(raw: string): string {
   if (!raw) return "";
-  let url = raw.trim();
-  if (url.startsWith("//")) url = "https:" + url;
-  if (url.startsWith("http://")) url = "https://" + url.slice(7);
-  if (!url.startsWith("https://")) return "";
-  return url.replace(/[<>&"']/g, "");
+  const fromPath = normalizeModelPath(raw);
+  if (fromPath) return fromPath;
+  try {
+    const url = raw.trim();
+    if (url.startsWith("https://") || url.startsWith("http://") || url.startsWith("//")) {
+      const full = url.startsWith("//") ? `https:${url}` : url;
+      return normalizeModelPath(new URL(full).pathname) || "";
+    }
+  } catch {
+    /* ignore */
+  }
+  return "";
 }
 
-function iosArPageHtml(usdzPath: string, glbPath: string, safeTitle: string): string {
-  const glbSrc = glbPath || usdzPath.replace(/\.usdz$/i, ".glb");
+/** Browser-facing path prefix, e.g. "" on tunnel or "/apps/ar-preview" on Shopify. */
+function getAppPathPrefix(request: Request): string {
+  const reqUrl = new URL(request.url);
+  let prefix = (reqUrl.searchParams.get("path_prefix") || "").replace(/\/$/, "");
+
+  if (!prefix) {
+    const viewIdx = reqUrl.pathname.indexOf("/ar/view");
+    if (viewIdx > 0) prefix = reqUrl.pathname.slice(0, viewIdx);
+  }
+
+  if (!prefix && (reqUrl.searchParams.get("shop") || reqUrl.pathname.startsWith("/proxy/"))) {
+    prefix = APP_PROXY_PREFIX;
+  }
+
+  return prefix;
+}
+
+/** Same-origin path the browser can fetch (critical for Shopify custom domains). */
+function resolveModelSrc(request: Request, raw: string): string {
+  const path = extractModelPath(raw);
+  if (!path) return "";
+
+  const prefix = getAppPathPrefix(request);
+  return `${prefix}${path}`;
+}
+
+function iosQuickLookHtml(usdzSrc: string, safeTitle: string): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <meta name="apple-mobile-web-app-capable" content="yes"/>
-  <title>${safeTitle} — AR View</title>
-  <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/3.5.0/model-viewer.min.js"></script>
+  <title>${safeTitle} — Wall AR</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body {
-      width: 100%; min-height: 100%;
-      background: #111; color: #fff;
-      font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      min-height: 100%; background: #0f0f0f; color: #fff;
+      font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
     body {
-      display: flex; flex-direction: column;
-      align-items: center; justify-content: center;
-      padding: 24px;
-      min-height: 100vh;
-      text-align: center;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      padding: 28px 20px; min-height: 100vh; text-align: center;
     }
-    h1 { font-size: 20px; font-weight: 600; margin-bottom: 8px; }
-    .ar-status { color: rgba(255,255,255,.75); margin-bottom: 20px; max-width: 320px; min-height: 44px; }
+    h1 { font-size: 21px; font-weight: 600; margin-bottom: 10px; }
+    .ar-status { color: rgba(255,255,255,.78); margin-bottom: 24px; max-width: 320px; min-height: 48px; }
     .ar-status.error { color: #ff8a8a; }
-    model-viewer {
-      width: min(100%, 420px);
-      height: 52vh;
-      max-height: 420px;
-      background: #222;
-      border-radius: 12px;
-      margin-bottom: 20px;
-    }
     .ar-launch {
       display: inline-flex; align-items: center; justify-content: center;
-      min-width: 220px; padding: 14px 28px;
-      border: none;
+      min-width: 260px; padding: 18px 32px; border: none;
       border-radius: 999px; background: #fff; color: #111;
-      font: 600 16px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      text-decoration: none; box-shadow: 0 8px 28px rgba(0,0,0,.35);
-      cursor: pointer;
+      font: 700 17px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      cursor: pointer; box-shadow: 0 8px 28px rgba(0,0,0,.35);
+      touch-action: manipulation;
     }
-    .ar-launch:disabled { opacity: 0.45; cursor: not-allowed; }
-    .ar-launch img { display: none; }
-    .ar-spinner {
-      width: 36px; height: 36px; margin: 0 auto 12px;
-      border: 3px solid rgba(255,255,255,.2);
-      border-top-color: #fff; border-radius: 50%;
-      animation: ar-spin .8s linear infinite;
-    }
-    @keyframes ar-spin { to { transform: rotate(360deg); } }
+    .ar-launch:disabled { opacity: .45; cursor: not-allowed; pointer-events: none; }
+    .ar-hint { color: rgba(255,255,255,.5); font-size: 13px; margin-top: 18px; max-width: 300px; line-height: 1.5; }
   </style>
 </head>
 <body>
-  <div class="ar-spinner" id="ar-spinner"></div>
   <h1>${safeTitle}</h1>
-  <p class="ar-status" id="ar-status">Loading AR model…</p>
-
-  <model-viewer
-    id="ar-mv"
-    src="${glbSrc}"
-    ios-src="${usdzPath}"
-    alt="${safeTitle}"
-    ar
-    ar-modes="quick-look"
-    ar-placement="wall"
-    ar-scale="fixed"
-    camera-controls
-    touch-action="pan-y"
-    shadow-intensity="0"
-    exposure="1.1"
-    quick-look-browsers="safari"
-  ></model-viewer>
-
-  <button type="button" class="ar-launch" id="ar-quicklook" disabled>
-    <img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="${safeTitle}"/>
-    View in AR
-  </button>
-
+  <p class="ar-status" id="ar-status">Preparing your photo frame…</p>
+  <button type="button" class="ar-launch" id="ar-launch-btn" disabled>Place on Wall</button>
+  <p class="ar-hint">Point at a wall, tap to place, pinch to zoom.</p>
   <script>
     (function () {
-      var usdzPath = ${JSON.stringify(usdzPath)};
-      var mv = document.getElementById('ar-mv');
+      var usdzSrc = ${JSON.stringify(usdzSrc)};
       var status = document.getElementById('ar-status');
-      var spinner = document.getElementById('ar-spinner');
-      var btn = document.getElementById('ar-quicklook');
+      var btn = document.getElementById('ar-launch-btn');
+      var usdzUrl = new URL(usdzSrc, window.location.href).href;
 
       function setStatus(msg, isError) {
-        if (status) {
-          status.textContent = msg;
-          status.classList.toggle('error', !!isError);
-        }
+        if (!status) return;
+        status.textContent = msg;
+        status.classList.toggle('error', !!isError);
       }
 
-      function enableAR() {
-        if (spinner) spinner.style.display = 'none';
-        setStatus('Tap View in AR to place it on your wall.');
+      function enableBtn() {
         if (btn) btn.disabled = false;
+        setStatus('Ready — tap Place on Wall.');
       }
 
-      function verifyUsdz() {
-        return fetch(usdzPath, { method: 'GET', cache: 'no-store' })
-          .then(function (res) {
-            if (!res.ok) throw new Error('Model not found (HTTP ' + res.status + '). Go back and try again.');
-            return res.blob();
-          })
-          .then(function (blob) {
-            if (!blob || blob.size < 512) {
-              throw new Error('Model file is empty (' + (blob ? blob.size : 0) + ' bytes). Go back and try again.');
-            }
-            enableAR();
-          });
+      function failLoad(httpStatus) {
+        var msg = httpStatus
+          ? 'Model not found (HTTP ' + httpStatus + '). Go back and tap View in AR again.'
+          : 'Could not load AR model. Go back and tap View in AR again.';
+        setStatus(msg, true);
+        if (btn) btn.disabled = true;
       }
+
+      fetch(usdzUrl, { method: 'HEAD', cache: 'no-store' })
+        .then(function (res) {
+          if (res.ok || res.status === 405) enableBtn();
+          else failLoad(res.status);
+        })
+        .catch(function () { failLoad(0); });
 
       if (btn) {
         btn.addEventListener('click', function () {
-          if (mv && mv.activateAR) {
-            mv.activateAR();
-            return;
-          }
           var link = document.createElement('a');
           link.setAttribute('rel', 'ar');
-          link.href = usdzPath;
+          link.href = usdzUrl;
           var img = document.createElement('img');
           img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
           img.alt = ${JSON.stringify(safeTitle)};
@@ -150,26 +134,7 @@ function iosArPageHtml(usdzPath: string, glbPath: string, safeTitle: string): st
           document.body.appendChild(link);
           link.click();
           link.remove();
-        });
-      }
-
-      if (mv) {
-        mv.addEventListener('load', function () {
-          verifyUsdz().catch(function (err) {
-            setStatus(err.message || 'Could not load AR model.', true);
-            if (spinner) spinner.style.display = 'none';
-          });
-        });
-        mv.addEventListener('error', function () {
-          verifyUsdz().catch(function (err) {
-            setStatus(err.message || 'Could not load AR model.', true);
-            if (spinner) spinner.style.display = 'none';
-          });
-        });
-      } else {
-        verifyUsdz().catch(function (err) {
-          setStatus(err.message || 'Could not load AR model.', true);
-          if (spinner) spinner.style.display = 'none';
+          setStatus('Tap to place on your wall, then pinch to zoom.');
         });
       }
     })();
@@ -178,74 +143,158 @@ function iosArPageHtml(usdzPath: string, glbPath: string, safeTitle: string): st
 </html>`;
 }
 
-function modelViewerHtml(safeGlb: string, safeUsdz: string, safeTitle: string): string {
-  const iosSrcAttr = safeUsdz ? ` ios-src="${safeUsdz}"` : "";
+function androidWallArHtml(glbSrc: string, safeTitle: string): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
-  <title>${safeTitle} — AR View</title>
+  <title>${safeTitle} — Wall AR</title>
   <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/3.5.0/model-viewer.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    html, body { width: 100%; height: 100%; background: #111; overflow: hidden; }
-    model-viewer { width: 100%; height: 100%; --poster-color: transparent; }
-    model-viewer::part(default-ar-button) { display: none; }
-    .ar-page-loader {
-      position: fixed; inset: 0; z-index: 100;
+    html, body {
+      min-height: 100%; background: #0f0f0f; color: #fff;
+      font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    body {
       display: flex; flex-direction: column; align-items: center; justify-content: center;
-      background: rgba(17,17,17,.92); color: #fff;
-      font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      transition: opacity .35s, visibility .35s;
+      padding: 28px 20px; min-height: 100vh; text-align: center;
     }
-    .ar-page-loader.hide { opacity: 0; visibility: hidden; pointer-events: none; }
-    .ar-page-loader p { margin-top: 14px; font-weight: 500; }
-    .ar-page-spinner {
-      width: 44px; height: 44px;
-      border: 3px solid rgba(255,255,255,.2);
-      border-top-color: #fff; border-radius: 50%;
-      animation: ar-spin .8s linear infinite;
+    h1 { font-size: 21px; font-weight: 600; margin-bottom: 10px; }
+    .ar-status { color: rgba(255,255,255,.78); margin-bottom: 20px; max-width: 320px; min-height: 48px; }
+    .ar-status.error { color: #ff8a8a; }
+    model-viewer {
+      width: min(100%, 360px); height: 38vh; max-height: 320px;
+      background: #1a1a1a; border-radius: 12px; margin-bottom: 20px;
     }
-    @keyframes ar-spin { to { transform: rotate(360deg); } }
+    model-viewer::part(default-ar-button) { display: none; }
+    .ar-launch {
+      display: inline-flex; align-items: center; justify-content: center;
+      min-width: 260px; padding: 18px 32px; border: none;
+      border-radius: 999px; background: #fff; color: #111;
+      font: 700 17px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      cursor: pointer; box-shadow: 0 8px 28px rgba(0,0,0,.35);
+      touch-action: manipulation;
+    }
+    .ar-launch:disabled { opacity: .45; cursor: not-allowed; pointer-events: none; }
+    .ar-hint { color: rgba(255,255,255,.5); font-size: 13px; margin-top: 18px; max-width: 300px; line-height: 1.5; }
+    .ar-steps {
+      list-style: none; text-align: left; margin: 0 0 24px;
+      max-width: 300px; color: rgba(255,255,255,.6); font-size: 14px;
+    }
+    .ar-steps li { padding: 4px 0 4px 24px; position: relative; }
+    .ar-steps li::before {
+      content: "•"; position: absolute; left: 6px; color: rgba(255,255,255,.4);
+    }
   </style>
 </head>
 <body>
-  <div class="ar-page-loader" id="ar-page-loader">
-    <div class="ar-page-spinner"></div>
-    <p id="ar-loader-text">Loading AR model…</p>
-  </div>
+  <h1>${safeTitle}</h1>
+  <p class="ar-status" id="ar-status">Loading photo frame…</p>
+
   <model-viewer
     id="ar-mv"
-    src="${safeGlb}"${iosSrcAttr}
     alt="${safeTitle}"
-    ar ar-modes="scene-viewer webxr"
+    ar
+    ar-modes="webxr scene-viewer"
     ar-placement="wall"
-    ar-scale="fixed"
+    ar-scale="auto"
+    interaction-prompt="none"
     camera-controls
-    auto-activate-ar
+    touch-action="pan-y"
     shadow-intensity="0"
     exposure="1.1"
+    crossorigin="anonymous"
   ></model-viewer>
+
+  <button type="button" class="ar-launch" id="ar-launch-btn" disabled>Place on Wall</button>
+
   <script>
     (function () {
+      var glbSrc = ${JSON.stringify(glbSrc)};
       var mv = document.getElementById('ar-mv');
-      var loader = document.getElementById('ar-page-loader');
-      var loaderText = document.getElementById('ar-loader-text');
-      if (!mv) return;
-      mv.addEventListener('progress', function (e) {
-        if (e.detail.totalProgress < 1 && loaderText) {
-          loaderText.textContent = 'Loading AR model… ' + Math.round(e.detail.totalProgress * 100) + '%';
+      var status = document.getElementById('ar-status');
+      var btn = document.getElementById('ar-launch-btn');
+      var ready = false;
+
+      function setStatus(msg, isError) {
+        if (!status) return;
+        status.textContent = msg;
+        status.classList.toggle('error', !!isError);
+      }
+
+      function markReady() {
+        ready = true;
+        if (btn) btn.disabled = false;
+        if (mv && mv.canActivateAR === false) {
+          setStatus('Update Chrome and Google Play Services for AR, then try again.', true);
+          return;
         }
-      });
-      mv.addEventListener('load', function () {
-        if (loaderText) loaderText.textContent = 'Launching AR…';
-        setTimeout(function () { if (loader) loader.classList.add('hide'); }, 600);
-      });
-      mv.addEventListener('error', function () {
-        if (loaderText) loaderText.textContent = 'Could not load AR model';
-        if (loader) loader.style.background = 'rgba(60,0,0,.9)';
-      });
+        setStatus('Ready');
+      }
+
+      function failLoad(httpStatus) {
+        var msg = httpStatus
+          ? 'Model not found (HTTP ' + httpStatus + '). Go back and tap View in AR again.'
+          : 'Could not load 3D model. Go back and tap View in AR again.';
+        setStatus(msg, true);
+        if (btn) btn.disabled = true;
+      }
+
+      function bootModel() {
+        fetch(glbSrc, { method: 'HEAD', cache: 'no-store' })
+          .then(function (res) {
+            if (!res.ok && res.status !== 405) {
+              failLoad(res.status);
+              return;
+            }
+            if (!mv) {
+              failLoad(0);
+              return;
+            }
+            mv.src = glbSrc;
+            mv.addEventListener('load', markReady, { once: true });
+            mv.addEventListener('error', function () {
+              failLoad(0);
+            }, { once: true });
+          })
+          .catch(function () {
+            if (mv) {
+              mv.src = glbSrc;
+              mv.addEventListener('load', markReady, { once: true });
+              mv.addEventListener('error', function () { failLoad(0); }, { once: true });
+            } else {
+              failLoad(0);
+            }
+          });
+      }
+
+      if (btn) {
+        btn.addEventListener('click', function (e) {
+          e.preventDefault();
+          if (!ready || !mv || !mv.canActivateAR) return;
+          setStatus('Opening AR… aim at a wall, not the floor.');
+          mv.activateAR();
+        });
+      }
+
+      if (mv) {
+        mv.addEventListener('ar-status', function (e) {
+          var st = e.detail && e.detail.status;
+          if (st === 'session-started') {
+            setStatus('Tap the wall when the marker appears. Pinch to zoom after placing.');
+          } else if (st === 'failed') {
+            setStatus('AR failed to start. Update Chrome and Google Play Services for AR.', true);
+            if (btn) btn.disabled = false;
+          } else if (st === 'not-presenting' && ready && btn) {
+            btn.disabled = false;
+            setStatus('Tap Place on Wall to try again.');
+          }
+        });
+      }
+
+      bootModel();
     })();
   </script>
 </body>
@@ -254,41 +303,31 @@ function modelViewerHtml(safeGlb: string, safeUsdz: string, safeTitle: string): 
 
 export async function loader({ request }: { request: Request }) {
   const url = new URL(request.url);
+  const glbPathParam  = url.searchParams.get("glbPath")  || "";
   const usdzPathParam = url.searchParams.get("usdzPath") || "";
-  const glbPathParam = url.searchParams.get("glbPath") || "";
-  const usdz = url.searchParams.get("usdz") || "";
-  const glb = url.searchParams.get("glb") || "";
+  const glbParam      = url.searchParams.get("glb")      || "";
+  const usdzParam     = url.searchParams.get("usdz")     || "";
   const title = url.searchParams.get("title") || "Product";
 
-  const safeUsdzPath = normalizeModelPath(usdzPathParam) || normalizeModelPath(usdz);
-  const safeGlbPath = normalizeModelPath(glbPathParam) || normalizeModelPath(glb);
-  const safeGlb = normalizeModelUrl(glb);
-  const safeUsdz = normalizeModelUrl(usdz);
   const safeTitle = title.replace(/[<>&"']/g, "");
   const ua = request.headers.get("user-agent") || "";
   const isIOS = isIOSUserAgent(ua);
 
-  if (isIOS) {
-    if (safeUsdzPath) {
-      return new Response(iosArPageHtml(safeUsdzPath, safeGlbPath, safeTitle), {
-        headers: { "Content-Type": "text/html;charset=utf-8", "Cache-Control": "no-store" },
-      });
-    }
-    if (!safeUsdz && !safeGlb) {
-      return new Response("Invalid model URL — usdzPath is required.", { status: 400 });
-    }
-    const html = modelViewerHtml(safeGlb, safeUsdz, safeTitle);
-    return new Response(html, {
-      headers: { "Content-Type": "text/html;charset=utf-8", "Cache-Control": "no-store" },
-    });
+  const glbSrc = resolveModelSrc(
+    request,
+    glbPathParam || glbParam || usdzPathParam.replace(/\.usdz$/i, ".glb"),
+  );
+  const usdzSrc = resolveModelSrc(request, usdzPathParam || usdzParam);
+
+  if (!glbSrc && !usdzSrc) {
+    return new Response("Invalid model URL — glbPath or usdzPath is required.", { status: 400 });
   }
 
-  const androidGlb = safeGlbPath || safeGlb;
-  if (!androidGlb) {
-    return new Response("Invalid model URL — GLB path is required.", { status: 400 });
-  }
+  const html = isIOS
+    ? iosQuickLookHtml(usdzSrc || glbSrc.replace(/\.glb$/i, ".usdz"), safeTitle)
+    : androidWallArHtml(glbSrc, safeTitle);
 
-  return new Response(modelViewerHtml(androidGlb, safeUsdzPath || safeUsdz, safeTitle), {
+  return new Response(html, {
     headers: { "Content-Type": "text/html;charset=utf-8", "Cache-Control": "no-store" },
   });
 }
