@@ -1,9 +1,11 @@
-// GET /ar/view?glbPath=...&title=Product
-// Wall AR — model URLs are same-origin relative paths (works on tunnel + Shopify proxy)
+// GET /ar/view?glbPath=...&usdzPath=...&title=Product
+// Android: model-viewer WebXR wall AR. iOS: GLB preview + native Quick Look (rel=ar).
 
 import { normalizeModelPath } from "../ar-model-cache.server";
 
 const APP_PROXY_PREFIX = "/apps/ar-preview";
+const QL_POSTER =
+  "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
 
 function isIOSUserAgent(ua: string): boolean {
   return /iphone|ipad|ipod/i.test(ua);
@@ -25,7 +27,6 @@ function extractModelPath(raw: string): string {
   return "";
 }
 
-/** Browser-facing path prefix, e.g. "" on tunnel or "/apps/ar-preview" on Shopify. */
 function getAppPathPrefix(request: Request): string {
   const reqUrl = new URL(request.url);
   let prefix = (reqUrl.searchParams.get("path_prefix") || "").replace(/\/$/, "");
@@ -42,116 +43,13 @@ function getAppPathPrefix(request: Request): string {
   return prefix;
 }
 
-/** Same-origin path the browser can fetch (critical for Shopify custom domains). */
 function resolveModelSrc(request: Request, raw: string): string {
   const path = extractModelPath(raw);
   if (!path) return "";
-
-  const prefix = getAppPathPrefix(request);
-  return `${prefix}${path}`;
+  return `${getAppPathPrefix(request)}${path}`;
 }
 
-function iosQuickLookHtml(usdzSrc: string, safeTitle: string): string {
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
-  <meta name="apple-mobile-web-app-capable" content="yes"/>
-  <title>${safeTitle} — Wall AR</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    html, body {
-      min-height: 100%; background: #0f0f0f; color: #fff;
-      font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    }
-    body {
-      display: flex; flex-direction: column; align-items: center; justify-content: center;
-      padding: 28px 20px; min-height: 100vh; text-align: center;
-    }
-    h1 { font-size: 21px; font-weight: 600; margin-bottom: 10px; }
-    .ar-status { color: rgba(255,255,255,.78); margin-bottom: 24px; max-width: 320px; min-height: 48px; }
-    .ar-status.error { color: #ff8a8a; }
-    .ar-launch {
-      display: inline-flex; align-items: center; justify-content: center;
-      min-width: 260px; padding: 18px 32px; border: none;
-      border-radius: 999px; background: #fff; color: #111;
-      font: 700 17px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      cursor: pointer; box-shadow: 0 8px 28px rgba(0,0,0,.35);
-      touch-action: manipulation;
-    }
-    .ar-launch:disabled { opacity: .45; cursor: not-allowed; pointer-events: none; }
-    .ar-hint { color: rgba(255,255,255,.5); font-size: 13px; margin-top: 18px; max-width: 300px; line-height: 1.5; }
-  </style>
-</head>
-<body>
-  <h1>${safeTitle}</h1>
-  <p class="ar-status" id="ar-status">Preparing your photo frame…</p>
-  <button type="button" class="ar-launch" id="ar-launch-btn" disabled>Place on Wall</button>
-  <p class="ar-hint">Point at a wall, tap to place, pinch to zoom.</p>
-  <script>
-    (function () {
-      var usdzSrc = ${JSON.stringify(usdzSrc)};
-      var status = document.getElementById('ar-status');
-      var btn = document.getElementById('ar-launch-btn');
-      var usdzUrl = new URL(usdzSrc, window.location.href).href;
-
-      function setStatus(msg, isError) {
-        if (!status) return;
-        status.textContent = msg;
-        status.classList.toggle('error', !!isError);
-      }
-
-      function enableBtn() {
-        if (btn) btn.disabled = false;
-        setStatus('Ready — tap Place on Wall.');
-      }
-
-      function failLoad(httpStatus) {
-        var msg = httpStatus
-          ? 'Model not found (HTTP ' + httpStatus + '). Go back and tap View in AR again.'
-          : 'Could not load AR model. Go back and tap View in AR again.';
-        setStatus(msg, true);
-        if (btn) btn.disabled = true;
-      }
-
-      fetch(usdzUrl, { method: 'HEAD', cache: 'no-store' })
-        .then(function (res) {
-          if (res.ok || res.status === 405) enableBtn();
-          else failLoad(res.status);
-        })
-        .catch(function () { failLoad(0); });
-
-      if (btn) {
-        btn.addEventListener('click', function () {
-          var link = document.createElement('a');
-          link.setAttribute('rel', 'ar');
-          link.href = usdzUrl;
-          var img = document.createElement('img');
-          img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
-          img.alt = ${JSON.stringify(safeTitle)};
-          link.appendChild(img);
-          document.body.appendChild(link);
-          link.click();
-          link.remove();
-          setStatus('Tap to place on your wall, then pinch to zoom.');
-        });
-      }
-    })();
-  </script>
-</body>
-</html>`;
-}
-
-function androidWallArHtml(glbSrc: string, safeTitle: string): string {
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
-  <title>${safeTitle} — Wall AR</title>
-  <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/3.5.0/model-viewer.min.js"></script>
-  <style>
+const sharedStyles = `
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body {
       min-height: 100%; background: #0f0f0f; color: #fff;
@@ -175,19 +73,138 @@ function androidWallArHtml(glbSrc: string, safeTitle: string): string {
       border-radius: 999px; background: #fff; color: #111;
       font: 700 17px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       cursor: pointer; box-shadow: 0 8px 28px rgba(0,0,0,.35);
-      touch-action: manipulation;
+      touch-action: manipulation; text-decoration: none;
     }
-    .ar-launch:disabled { opacity: .45; cursor: not-allowed; pointer-events: none; }
+    .ar-launch:disabled, .ar-launch.ar-disabled {
+      opacity: .45; cursor: not-allowed; pointer-events: none;
+    }
     .ar-hint { color: rgba(255,255,255,.5); font-size: 13px; margin-top: 18px; max-width: 300px; line-height: 1.5; }
-    .ar-steps {
-      list-style: none; text-align: left; margin: 0 0 24px;
-      max-width: 300px; color: rgba(255,255,255,.6); font-size: 14px;
-    }
-    .ar-steps li { padding: 4px 0 4px 24px; position: relative; }
-    .ar-steps li::before {
-      content: "•"; position: absolute; left: 6px; color: rgba(255,255,255,.4);
-    }
-  </style>
+    .ar-ql-img { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+`;
+
+/** iOS: GLB preview + Apple-native Quick Look link (most reliable wall placement). */
+function iosQuickLookHtml(glbSrc: string, usdzSrc: string, safeTitle: string): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <title>${safeTitle} — Wall AR</title>
+  <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/3.5.0/model-viewer.min.js"></script>
+  <style>${sharedStyles}</style>
+</head>
+<body>
+  <h1>${safeTitle}</h1>
+  <p class="ar-status" id="ar-status">Loading preview…</p>
+
+  <model-viewer
+    id="ar-mv"
+    alt="${safeTitle}"
+    camera-controls
+    touch-action="pan-y"
+    shadow-intensity="0"
+    exposure="1.1"
+    crossorigin="anonymous"
+  ></model-viewer>
+
+  <a rel="ar" class="ar-launch ar-disabled" id="ar-ql-link" href="#" aria-disabled="true">
+    <img class="ar-ql-img" src="${QL_POSTER}" alt="" width="1" height="1"/>
+    Place on Wall
+  </a>
+  <p class="ar-hint">Tap Place on Wall, scan a flat wall, then tap the wall to hang the frame.</p>
+
+  <script>
+    (function () {
+      var glbSrc = ${JSON.stringify(glbSrc)};
+      var usdzSrc = ${JSON.stringify(usdzSrc)};
+      var status = document.getElementById('ar-status');
+      var mv = document.getElementById('ar-mv');
+      var link = document.getElementById('ar-ql-link');
+
+      function absUrl(src) {
+        if (!src) return '';
+        try { return new URL(src, window.location.href).href; }
+        catch (e) { return src; }
+      }
+
+      var glbUrl = absUrl(glbSrc);
+      var usdzUrl = absUrl(usdzSrc);
+
+      function setStatus(msg, isError) {
+        if (!status) return;
+        status.textContent = msg;
+        status.classList.toggle('error', !!isError);
+      }
+
+      function disableLink() {
+        if (!link) return;
+        link.classList.add('ar-disabled');
+        link.setAttribute('aria-disabled', 'true');
+        link.href = '#';
+      }
+
+      function enableLink() {
+        if (!link || !usdzUrl) return;
+        link.href = usdzUrl;
+        link.classList.remove('ar-disabled');
+        link.setAttribute('aria-disabled', 'false');
+        setStatus('Ready — tap Place on Wall.');
+      }
+
+      function failLoad(httpStatus) {
+        var msg = httpStatus
+          ? 'Model not found (HTTP ' + httpStatus + '). Go back and tap View in AR again.'
+          : 'Could not load AR model. Go back and tap View in AR again.';
+        setStatus(msg, true);
+        disableLink();
+      }
+
+      function bootPreview() {
+        if (!usdzUrl) {
+          failLoad(0);
+          return;
+        }
+        fetch(usdzUrl, { method: 'HEAD', cache: 'no-store' })
+          .then(function (res) {
+            if (!res.ok && res.status !== 405) {
+              failLoad(res.status);
+              return;
+            }
+            enableLink();
+            if (mv && glbUrl) {
+              mv.src = glbUrl;
+              mv.addEventListener('load', function () {}, { once: true });
+              mv.addEventListener('error', function () {}, { once: true });
+            }
+          })
+          .catch(function () { failLoad(0); });
+      }
+
+      if (link) {
+        link.addEventListener('click', function () {
+          if (link.classList.contains('ar-disabled')) return;
+          setStatus('Scan a wall, then tap to place. Pinch to zoom after placing.');
+        });
+      }
+
+      bootPreview();
+    })();
+  </script>
+</body>
+</html>`;
+}
+
+/** Android: model-viewer WebXR / Scene Viewer wall AR (unchanged flow). */
+function androidWallArHtml(glbSrc: string, safeTitle: string): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <title>${safeTitle} — Wall AR</title>
+  <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/3.5.0/model-viewer.min.js"></script>
+  <style>${sharedStyles}</style>
 </head>
 <body>
   <h1>${safeTitle}</h1>
@@ -209,6 +226,7 @@ function androidWallArHtml(glbSrc: string, safeTitle: string): string {
   ></model-viewer>
 
   <button type="button" class="ar-launch" id="ar-launch-btn" disabled>Place on Wall</button>
+  <p class="ar-hint">Point at a wall, tap to place, pinch to zoom.</p>
 
   <script>
     (function () {
@@ -231,7 +249,7 @@ function androidWallArHtml(glbSrc: string, safeTitle: string): string {
           setStatus('Update Chrome and Google Play Services for AR, then try again.', true);
           return;
         }
-        setStatus('Ready');
+        setStatus('Ready — tap Place on Wall.');
       }
 
       function failLoad(httpStatus) {
@@ -245,28 +263,17 @@ function androidWallArHtml(glbSrc: string, safeTitle: string): string {
       function bootModel() {
         fetch(glbSrc, { method: 'HEAD', cache: 'no-store' })
           .then(function (res) {
-            if (!res.ok && res.status !== 405) {
-              failLoad(res.status);
-              return;
-            }
-            if (!mv) {
-              failLoad(0);
-              return;
-            }
+            if (!res.ok && res.status !== 405) { failLoad(res.status); return; }
+            if (!mv) { failLoad(0); return; }
             mv.src = glbSrc;
             mv.addEventListener('load', markReady, { once: true });
-            mv.addEventListener('error', function () {
-              failLoad(0);
-            }, { once: true });
+            mv.addEventListener('error', function () { failLoad(0); }, { once: true });
           })
           .catch(function () {
-            if (mv) {
-              mv.src = glbSrc;
-              mv.addEventListener('load', markReady, { once: true });
-              mv.addEventListener('error', function () { failLoad(0); }, { once: true });
-            } else {
-              failLoad(0);
-            }
+            if (!mv) { failLoad(0); return; }
+            mv.src = glbSrc;
+            mv.addEventListener('load', markReady, { once: true });
+            mv.addEventListener('error', function () { failLoad(0); }, { once: true });
           });
       }
 
@@ -289,7 +296,7 @@ function androidWallArHtml(glbSrc: string, safeTitle: string): string {
             if (btn) btn.disabled = false;
           } else if (st === 'not-presenting' && ready && btn) {
             btn.disabled = false;
-            setStatus('Tap Place on Wall to try again.');
+            setStatus('Ready — tap Place on Wall.');
           }
         });
       }
@@ -324,7 +331,7 @@ export async function loader({ request }: { request: Request }) {
   }
 
   const html = isIOS
-    ? iosQuickLookHtml(usdzSrc || glbSrc.replace(/\.glb$/i, ".usdz"), safeTitle)
+    ? iosQuickLookHtml(glbSrc, usdzSrc || glbSrc.replace(/\.glb$/i, ".usdz"), safeTitle)
     : androidWallArHtml(glbSrc, safeTitle);
 
   return new Response(html, {

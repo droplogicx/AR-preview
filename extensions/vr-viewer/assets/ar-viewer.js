@@ -194,21 +194,41 @@
   }
 
   var SIZE_PRESETS = [
-    { label: 'Small',  scale: 0.65 },
-    { label: 'Medium', scale: 1.0 },
-    { label: 'Large',  scale: 1.35 },
-    { label: 'XL',     scale: 1.7 }
+    { label: 'A4', w: 21,  h: 30 },
+    { label: 'A3', w: 30,  h: 42 },
+    { label: 'A2', w: 42,  h: 60 },
+    { label: 'A1', w: 60,  h: 84 },
+    { label: 'B1', w: 70,  h: 100 },
+    { label: 'A0', w: 84,  h: 119 },
+    { label: 'B0', w: 100, h: 141 }
   ];
 
-  var MAT_COLOR = '#ffffff';
-  var MAT_INCH_CM = 2.54;
-  var FRAME_CM = 1.5;
-  var SIZE_MIN = 0.35;
-  var SIZE_MAX = 1.85;
+  function presetScale(p) {
+    return WIDTH_CM > 0 ? p.w / WIDTH_CM : 1;
+  }
+
+  function defaultSizeIndex() {
+    var best = 0;
+    var bestDiff = Infinity;
+    SIZE_PRESETS.forEach(function (p, i) {
+      var d = Math.abs(p.w - WIDTH_CM);
+      if (d < bestDiff) { bestDiff = d; best = i; }
+    });
+    return best;
+  }
+
+  var DEFAULT_SIZE_INDEX = defaultSizeIndex();
+  var SIZE_MIN = presetScale(SIZE_PRESETS[0]);
+  var SIZE_MAX = presetScale(SIZE_PRESETS[SIZE_PRESETS.length - 1]);
+
+  function activePresetRatio() {
+    var p = SIZE_PRESETS[state.sizeIndex] || SIZE_PRESETS[DEFAULT_SIZE_INDEX];
+    return p.w > 0 ? p.h / p.w : getProductRatio();
+  }
 
   function outerSizeCm() {
     var w = WIDTH_CM * state.sizeScale;
-    return { w: w, h: w * getProductRatio() };
+    return { w: w, h: w * activePresetRatio() };
   }
 
   function matPaddingPx(outerPx, outerCm) {
@@ -222,15 +242,10 @@
   }
 
   var FRAME_COLORS = [
-    { id: 'none',    color: 'transparent', label: 'None' },
-    { id: 'canvas',  color: '#ffffff',     label: 'Canvas' },
-    { id: 'black',   color: '#1a1a1a',     label: 'Black' },
-    { id: 'white',   color: '#f5f5f0',     label: 'White' },
-    { id: 'acrylic', color: '#b8b8b8',     label: 'Acrylic' },
-    { id: 'oak',     color: '#c4a574',     label: 'Oak' },
-    { id: 'walnut',  color: '#5c4033',     label: 'Walnut' },
-    { id: 'gold',    color: '#d4af37',     label: 'Gold' },
-    { id: 'silver',  color: '#a0a0a0',     label: 'Silver' }
+    { id: 'none',           color: 'transparent', label: 'None' },
+    { id: 'natural-timber', color: '#c4a574',     label: 'Natural Timber' },
+    { id: 'white',          color: '#f5f5f0',     label: 'White Frame' },
+    { id: 'black',          color: '#1a1a1a',     label: 'Black Frame' }
   ];
 
   var CM_PER_FOOT = 30.48;
@@ -254,16 +269,20 @@
     return cmToDisplayUnit(WIDTH_CM, unit || 'feet');
   }
 
+  var MAT_COLOR = '#ffffff';
+  var MAT_INCH_CM = 2.54;
+  var FRAME_CM = 1.5;
+
   var state = {
     roomIndex: 0,
     posX: 50,
     posY: 32,
-    sizeIndex: 1,
-    sizeScale: 1.0,
+    sizeIndex: DEFAULT_SIZE_INDEX,
+    sizeScale: presetScale(SIZE_PRESETS[DEFAULT_SIZE_INDEX]),
     angle: 0,
     level: 0,
     pitch: 0,
-    spaceWidth: defaultSpaceWidth('feet'),
+    spaceWidth: cmToDisplayUnit(SIZE_PRESETS[DEFAULT_SIZE_INDEX].w, 'feet'),
     unit: 'feet',
     showFullBg: false,
     frameId: 'none',
@@ -280,21 +299,41 @@
     return base + (base.indexOf('?') >= 0 ? '&' : '?') + extra;
   }
 
-  // ── Inject FAB ───────────────────────────────────────────────────────────────
-  var fabThumbSrc = IMG_THUMB || IMG;
-  var fabThumbHtml = '';
-  if (fabThumbSrc) {
-    fabThumbHtml =
-      '<span class="ar-fab-thumb">' +
-        '<img src="' + fabThumbSrc + '" alt="" loading="eager" draggable="false"/>' +
-      '</span>';
+  // ── Inject product CTA (above Add to Cart form) ─────────────────────────────
+  function findAddToCartForm() {
+    var selectors = [
+      'form[data-type="add-to-cart-form"]',
+      'form.shopify-product-form',
+      'form.product-single__form',
+      'form[action*="/cart/add"]'
+    ];
+    for (var i = 0; i < selectors.length; i++) {
+      var el = document.querySelector(selectors[i]);
+      if (el) return el;
+    }
+    return null;
+  }
+
+  var fabHtml =
+    '<button id="ar-fab" class="ar-fab-inline" aria-label="Preview in your room">' +
+      '<span class="ar-fab-text">Preview here</span>' +
+    '</button>';
+
+  var fabMountedInline = false;
+  var addForm = findAddToCartForm();
+  if (addForm && addForm.parentNode) {
+    var fabWrap = document.createElement('div');
+    fabWrap.className = 'ar-product-cta';
+    fabWrap.innerHTML = fabHtml;
+    addForm.parentNode.insertBefore(fabWrap, addForm);
+    fabMountedInline = true;
+  } else {
+    document.body.insertAdjacentHTML('beforeend',
+      '<button id="ar-fab" aria-label="Preview in your room"><span class="ar-fab-text">Preview here</span></button>'
+    );
   }
 
   document.body.insertAdjacentHTML('beforeend',
-    '<button id="ar-fab"' + (fabThumbSrc ? '' : ' class="ar-fab-no-thumb"') + ' aria-label="Preview in your room">' +
-      fabThumbHtml +
-      '<span class="ar-fab-label">Preview here!</span>' +
-    '</button>' +
     '<div id="ar-splash" aria-hidden="true">' +
       '<div class="ar-splash-backdrop"></div>' +
       '<div class="ar-splash-top">' +
@@ -312,10 +351,6 @@
       '<div class="ar-splash-loader" aria-hidden="true">' +
         '<div class="ar-splash-loader-bar"></div>' +
       '</div>' +
-      '<div class="ar-splash-powered">' +
-        '<span>powered by <strong>VR Viewer</strong></span>' +
-        '<small>Live Previews for your Shopify Store</small>' +
-      '</div>' +
     '</div>' +
     '<div id="ar-room" aria-hidden="true"></div>'
   );
@@ -328,17 +363,6 @@
   var splashMaxTimer = null;
   var roomOpening = false;
   var blockBackdropCloseUntil = 0;
-
-  if (fabThumbSrc && fab) {
-    var fabImg = fab.querySelector('.ar-fab-thumb img');
-    if (fabImg) {
-      fabImg.addEventListener('error', function () {
-        var thumb = fab.querySelector('.ar-fab-thumb');
-        if (thumb) thumb.remove();
-        fab.classList.add('ar-fab-no-thumb');
-      });
-    }
-  }
 
   function cmToIn(cm) { return (cm / 2.54).toFixed(1); }
 
@@ -356,11 +380,11 @@
   }
 
   function syncSizeIndexFromScale() {
-    var scale = state.sizeScale;
-    var best = 1;
+    var currentW = WIDTH_CM * state.sizeScale;
+    var best = DEFAULT_SIZE_INDEX;
     var bestDiff = Infinity;
     SIZE_PRESETS.forEach(function (p, i) {
-      var d = Math.abs(p.scale - scale);
+      var d = Math.abs(p.w - currentW);
       if (d < bestDiff) { bestDiff = d; best = i; }
     });
     state.sizeIndex = best;
@@ -404,7 +428,7 @@
     var vpW = scene ? scene.clientWidth : 400;
     var vpH = scene ? scene.clientHeight : 300;
     var ratio = getProductRatio();
-    var scale = state.sizeScale || SIZE_PRESETS[state.sizeIndex].scale;
+    var scale = state.sizeScale || presetScale(SIZE_PRESETS[state.sizeIndex]);
     var w, h;
 
     if (ratio >= 1) {
@@ -463,10 +487,8 @@
   // ── Build room UI ────────────────────────────────────────────────────────────
   function buildRoomUI() {
     var sizeOpts = SIZE_PRESETS.map(function (s, i) {
-      var w = (WIDTH_CM * s.scale).toFixed(1);
-      var h = (HEIGHT_CM * s.scale).toFixed(1);
       return '<option value="' + i + '"' + (i === state.sizeIndex ? ' selected' : '') + '>' +
-        cmToIn(w) + '" x ' + cmToIn(h) + '"</option>';
+        s.label + ': ' + s.w + 'x' + s.h + ' cm</option>';
     }).join('');
 
     var frameSwatches = FRAME_COLORS.map(function (f) {
@@ -567,10 +589,10 @@
                   '<label class="ar-field">Size<select id="ar-size">' + sizeOpts + '</select></label>' +
                   '<div class="ar-field"><span class="ar-field-label" id="ar-frame-label">Frame: <strong>None</strong></span><div class="ar-swatches">' + frameSwatches + '</div></div>' +
                   '<div class="ar-field' + (state.frameId === 'none' ? ' ar-matting-disabled' : '') + '" id="ar-matting-field">' +
-                    '<span class="ar-field-label">Matting</span>' +
+                    '<span class="ar-field-label">Border Options:</span>' +
                     '<div class="ar-matting-btns">' +
                       '<button type="button" class="ar-mat-btn' + (state.matting === 'none' ? ' ar-active' : '') + '" data-mat="none">None</button>' +
-                      '<button type="button" class="ar-mat-btn' + (state.matting === '1' ? ' ar-active' : '') + '" data-mat="1">1"</button>' +
+                      '<button type="button" class="ar-mat-btn' + (state.matting === '1' ? ' ar-active' : '') + '" data-mat="1">White</button>' +
                     '</div>' +
                   '</div>' +
                 '</div>' +
@@ -614,10 +636,6 @@
               '</div>' +
             '</div>' +
           '</div>' +
-        '</div>' +
-        '<div class="ar-room-powered">' +
-          '<span>powered by <strong>VR Viewer</strong></span>' +
-          '<small>Live Previews for your Shopify Store</small>' +
         '</div>' +
       '</div>' +
       '<div class="ar-room-dialog' + (state.showInterface ? ' ar-show-ui' : '') + '">' +
@@ -760,6 +778,15 @@
     });
   }
 
+  function productTiltTransform() {
+    var a = state.angle || 0;
+    var p = state.pitch || 0;
+    var l = state.level || 0;
+    if (!a && !p && !l) return 'translate(-50%,-50%)';
+    // Match Three.js YXZ (angle=Y, pitch=X, level=Z)
+    return 'translate(-50%,-50%) rotateY(' + a + 'deg) rotateX(' + p + 'deg) rotateZ(' + l + 'deg)';
+  }
+
   function renderViewport() {
     if (!els.bg) return;
     var bgUrl = currentBgUrl();
@@ -804,9 +831,7 @@
     els.productWrap.classList.toggle('ar-wall-piece', state.frameId !== 'none');
     els.productFrame.classList.toggle('ar-blend', state.frameId === 'none' && state.matting === 'none');
 
-    // Flat wall mount — no perspective or rotation, painting sits flush on wall
-    var transform = 'translate(-50%,-50%)';
-    els.productWrap.style.transform = transform;
+    els.productWrap.style.transform = productTiltTransform();
 
     var img = document.getElementById('ar-product-img');
     if (img) {
@@ -890,10 +915,10 @@
     state.level = 0;
     state.pitch = 0;
     state.showFullBg = false;
-    state.sizeScale = 1.0;
-    state.sizeIndex = 1;
+    state.sizeScale = presetScale(SIZE_PRESETS[DEFAULT_SIZE_INDEX]);
+    state.sizeIndex = DEFAULT_SIZE_INDEX;
     state.unit = 'feet';
-    state.spaceWidth = defaultSpaceWidth('feet');
+    state.spaceWidth = cmToDisplayUnit(SIZE_PRESETS[DEFAULT_SIZE_INDEX].w, 'feet');
 
     var angleEl = document.getElementById('ar-angle');
     var levelEl = document.getElementById('ar-level');
@@ -906,7 +931,7 @@
     if (pitchEl) pitchEl.value = '0';
     if (spaceEl) spaceEl.value = state.spaceWidth.toFixed(2);
     if (unitEl) unitEl.value = 'feet';
-    if (sizeEl) sizeEl.value = '1';
+    if (sizeEl) sizeEl.value = String(DEFAULT_SIZE_INDEX);
 
     syncSizeSliderUI();
     renderViewport();
@@ -1089,7 +1114,15 @@
 
     ctx.save();
     ctx.translate(cx, cy);
-    ctx.rotate((state.level * Math.PI) / 180);
+    if (state.level) ctx.rotate((state.level * Math.PI) / 180);
+    if (state.angle) {
+      var skew = Math.tan((state.angle * Math.PI) / 180) * 0.35;
+      ctx.transform(1, 0, skew, 1, 0, 0);
+    }
+    if (state.pitch) {
+      var scaleY = Math.cos((state.pitch * Math.PI) / 180);
+      ctx.scale(1, Math.max(0.55, scaleY));
+    }
     paintFramedArt(ctx, size.w, size.h, prodImg, scaleX, scaleY);
     ctx.restore();
   }
@@ -1410,7 +1443,7 @@
             h: payload.dims.h,
             frame: state.frameId,
             matting: state.frameId === 'none' ? 'none' : state.matting,
-            sizeScale: state.sizeScale,
+            sizeScale: 1,
             angle: state.angle,
             level: state.level,
             pitch: state.pitch
@@ -1584,7 +1617,8 @@
 
     document.getElementById('ar-size').addEventListener('change', function (e) {
       state.sizeIndex = parseInt(e.target.value, 10);
-      state.sizeScale = SIZE_PRESETS[state.sizeIndex].scale;
+      state.sizeScale = presetScale(SIZE_PRESETS[state.sizeIndex]);
+      syncSpaceWidthFields(false);
       syncSizeSliderUI();
       renderViewport();
     });
@@ -1916,12 +1950,14 @@
     if (roomEl.classList.contains('ar-open')) closeRoom();
   });
 
-  var lastY = window.scrollY;
-  window.addEventListener('scroll', function () {
-    var y = window.scrollY;
-    if      (y > lastY + 60)  fab.classList.add('ar-fab-hide');
-    else if (y < lastY - 10)  fab.classList.remove('ar-fab-hide');
-    lastY = y;
-  }, { passive: true });
+  if (!fabMountedInline) {
+    var lastY = window.scrollY;
+    window.addEventListener('scroll', function () {
+      var y = window.scrollY;
+      if      (y > lastY + 60)  fab.classList.add('ar-fab-hide');
+      else if (y < lastY - 10)  fab.classList.remove('ar-fab-hide');
+      lastY = y;
+    }, { passive: true });
+  }
 
 })();

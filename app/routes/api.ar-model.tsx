@@ -83,14 +83,14 @@ async function generateAndCache(
   const needsUsdz = !isValidCachedFile(usdzPath);
 
   if (needsGlb || needsUsdz) {
-    const scene = await createARScene(imageBuffer, wCm, hCm, angle, level, pitch, edgeColor);
+    const frame = await buildFrameContext(imageBuffer, wCm, hCm, angle, level, pitch, edgeColor);
     if (needsGlb) {
-      const glbBuf = await exportGLB(scene);
+      const glbBuf = await exportGLB(createGLBScene(frame));
       if (glbBuf.length < 512) throw new Error("GLB export produced an empty file");
       fs.writeFileSync(glbPath, glbBuf);
     }
     if (needsUsdz) {
-      const usdzBuf = await exportUSDZ(scene);
+      const usdzBuf = await exportUSDZ(createUSDZScene(frame));
       if (usdzBuf.length < 512) throw new Error("USDZ export produced an empty file");
       fs.writeFileSync(usdzPath, usdzBuf);
     }
@@ -168,7 +168,7 @@ export async function action({ request }: { request: Request }) {
 
     const cacheSeed = crypto.createHash("md5")
       .update(imageBuffer)
-      .update(`|${wCm}|${hCm}|${frame}|${effectiveMatting}|${sizeScale}|${angle}|${level}|${pitch}|wall-v10`)
+      .update(`|${wCm}|${hCm}|${frame}|${effectiveMatting}|${sizeScale}|${angle}|${level}|${pitch}|wall-v16`)
       .digest("hex");
     const edgeColor = frameColor || FRAME_COLOR_MAP[frame] || "#3d2b1f";
     return await generateAndCache(request, imageBuffer, wCm, hCm, cacheSeed, angle, level, pitch, edgeColor);
@@ -179,14 +179,9 @@ export async function action({ request }: { request: Request }) {
 }
 
 const FRAME_COLOR_MAP: Record<string, string> = {
-  canvas:  "#ffffff",
-  black:   "#1a1a1a",
-  white:   "#f5f5f0",
-  acrylic: "#b8b8b8",
-  oak:     "#c4a574",
-  walnut:  "#5c4033",
-  gold:    "#d4af37",
-  silver:  "#a0a0a0",
+  "natural-timber": "#c4a574",
+  white:            "#f5f5f0",
+  black:            "#1a1a1a",
 };
 
 const MAT_INCH_CM = 2.54;
@@ -310,8 +305,23 @@ async function ensureNodeDomPolyfills() {
   domPolyfillsReady = true;
 }
 
-// ── Build shared Three.js scene (frame texture is already baked into image) ───
-async function createARScene(
+type FrameContext = Awaited<ReturnType<typeof buildFrameContext>>;
+
+function applyFrameTilt(
+  object: { rotation: { order: string; x: number; y: number; z: number } },
+  THREE: typeof import("three"),
+  angleDeg: number,
+  pitchDeg: number,
+  levelDeg: number,
+) {
+  object.rotation.order = "YXZ";
+  object.rotation.y = THREE.MathUtils.degToRad(angleDeg);
+  object.rotation.x = THREE.MathUtils.degToRad(pitchDeg);
+  object.rotation.z = THREE.MathUtils.degToRad(levelDeg);
+}
+
+// ── Shared texture/materials for GLB + USDZ exports ─────────────────────────
+async function buildFrameContext(
   imageBuffer: Buffer,
   wCm: number,
   hCm: number,
@@ -330,55 +340,78 @@ async function createARScene(
 
   const MAX = 1024;
   const scale = Math.min(1, MAX / Math.max(img.width, img.height));
-  const tw = Math.round(img.width  * scale);
+  const tw = Math.round(img.width * scale);
   const th = Math.round(img.height * scale);
 
   const canvas = createCanvas(tw, th);
-  const ctx    = canvas.getContext("2d");
+  const ctx = canvas.getContext("2d");
   ctx.drawImage(img as any, 0, 0, tw, th);
 
   const THREE = await import("three");
-  const scene = new THREE.Scene();
 
   const imgAspect = img.width / img.height;
-  const hFromImg  = wM / imgAspect;
-  const finalH    = hFromImg > 0 ? hFromImg : hM;
+  const hFromImg = wM / imgAspect;
+  const finalH = hFromImg > 0 ? hFromImg : hM;
   const texture = new THREE.CanvasTexture(canvas as any);
   texture.colorSpace = THREE.SRGBColorSpace;
-  texture.flipY      = true;
+  texture.flipY = true;
   texture.needsUpdate = true;
 
   const frontMat = new THREE.MeshStandardMaterial({
-    map:       texture,
+    map: texture,
     roughness: 0.85,
     metalness: 0.0,
   });
   const backMat = new THREE.MeshStandardMaterial({
-    color:     0xffffff,
+    color: 0xffffff,
     roughness: 0.92,
     metalness: 0.0,
   });
   const edgeMat = new THREE.MeshStandardMaterial({
-    color:     new THREE.Color(edgeColor),
+    color: new THREE.Color(edgeColor),
     roughness: 0.78,
     metalness: 0.04,
   });
 
-  // Box frame: image on +Z, white back on -Z, ~1" depth on sides (wall AR back against -Z).
+  return {
+    THREE,
+    wM,
+    finalH,
+    frontMat,
+    backMat,
+    edgeMat,
+    angleDeg,
+    levelDeg,
+    pitchDeg,
+  };
+}
+
+/** GLB/Android: single box with per-face materials — clean mitered corners. */
+function createGLBScene(frame: FrameContext) {
+  const { THREE, wM, finalH, frontMat, backMat, edgeMat, angleDeg, levelDeg, pitchDeg } = frame;
+  const scene = new THREE.Scene();
   const mesh = new THREE.Mesh(
     new THREE.BoxGeometry(wM, finalH, FRAME_DEPTH_M),
     [edgeMat, edgeMat, edgeMat, edgeMat, frontMat, backMat],
   );
-  mesh.rotation.order = "YXZ";
-  mesh.rotation.y = THREE.MathUtils.degToRad(angleDeg);
-  mesh.rotation.x = THREE.MathUtils.degToRad(pitchDeg);
-  mesh.rotation.z = THREE.MathUtils.degToRad(levelDeg);
-
+  applyFrameTilt(mesh, THREE, angleDeg, pitchDeg, levelDeg);
   scene.add(mesh);
   return scene;
 }
 
-async function exportGLB(scene: Awaited<ReturnType<typeof createARScene>>): Promise<Buffer> {
+/**
+ * USDZ/iOS: portrait plane (+Z faces viewer on wall). Single mesh for Quick Look.
+ * GLB/Android unchanged in createGLBScene.
+ */
+function createUSDZScene(frame: FrameContext) {
+  const { THREE, wM, finalH, frontMat } = frame;
+  const scene = new THREE.Scene();
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(wM, finalH), frontMat);
+  scene.add(mesh);
+  return scene;
+}
+
+async function exportGLB(scene: ReturnType<typeof createGLBScene>): Promise<Buffer> {
   const { GLTFExporter } = await import("three/examples/jsm/exporters/GLTFExporter.js");
   const exporter = new GLTFExporter();
   return new Promise((resolve, reject) => {
@@ -397,7 +430,7 @@ async function exportGLB(scene: Awaited<ReturnType<typeof createARScene>>): Prom
   });
 }
 
-async function exportUSDZ(scene: Awaited<ReturnType<typeof createARScene>>): Promise<Buffer> {
+async function exportUSDZ(scene: ReturnType<typeof createUSDZScene>): Promise<Buffer> {
   const { USDZExporter } = await import("three/examples/jsm/exporters/USDZExporter.js");
   const exporter = new USDZExporter();
   const arrayBuffer = await exporter.parseAsync(scene, {

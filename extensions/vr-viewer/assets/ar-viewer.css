@@ -1,67 +1,80 @@
 #ar-root { display: none; }
 
-/* ── FAB ─────────────────────────────────────────────────────────────────────── */
+/* ── FAB (above Add to Cart form) ───────────────────────────────────────────── */
+.ar-product-cta {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  margin: 0 0 12px;
+  padding: 0;
+  box-sizing: border-box;
+}
 #ar-fab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  box-sizing: border-box;
+  padding: 14px 24px;
+  min-height: 48px;
+  background: #000;
+  color: #fff;
+  border: none;
+  border-radius: 5px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: none;
+  transition: background .2s, opacity .2s;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  appearance: none;
+  -webkit-appearance: none;
+}
+#ar-fab .ar-fab-text {
+  display: inline-block;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  padding-left: 0.14em;
+  text-align: center;
+}
+#ar-fab.ar-fab-inline {
+  position: relative;
+}
+#ar-fab.ar-fab-inline:hover {
+  background: #111;
+}
+#ar-fab.ar-fab-inline:active {
+  opacity: 0.88;
+}
+/* Fallback when Add to Cart form is not found */
+#ar-fab:not(.ar-fab-inline) {
   position: fixed;
   bottom: 28px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 9990;
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  padding: 7px 16px 7px 7px;
-  height: auto;
-  min-height: 46px;
-  background: #2a2a2a;
-  color: #fff;
-  border: none;
-  border-radius: 12px;
-  font-family: inherit;
-  font-size: 14px;
-  font-weight: 500;
-  white-space: nowrap;
-  cursor: pointer;
+  width: auto;
+  min-width: 200px;
   box-shadow: 0 4px 18px rgba(0,0,0,0.28);
-  transition: transform .2s, opacity .25s, bottom .25s, box-shadow .2s;
-  -webkit-tap-highlight-color: transparent;
-  user-select: none;
+  transition: transform .2s, opacity .25s, bottom .25s, background .2s;
 }
-#ar-fab:hover {
-  transform: translateX(-50%) translateY(-1px);
-  box-shadow: 0 6px 22px rgba(0,0,0,0.32);
+#ar-fab:not(.ar-fab-inline):hover {
+  transform: translateX(-50%);
+  background: #111;
 }
-#ar-fab:active {
-  transform: translateX(-50%) scale(0.98);
+#ar-fab:not(.ar-fab-inline):active {
+  transform: translateX(-50%);
+  opacity: 0.88;
 }
-#ar-fab.ar-fab-hide {
+#ar-fab:not(.ar-fab-inline).ar-fab-hide {
   opacity: 0;
   pointer-events: none;
   bottom: 0;
-}
-.ar-fab-thumb {
-  flex-shrink: 0;
-  width: 44px;
-  height: 52px;
-  border-radius: 7px;
-  overflow: hidden;
-  background: #fff;
-  line-height: 0;
-}
-.ar-fab-thumb img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  object-position: center;
-  pointer-events: none;
-}
-.ar-fab-label {
-  line-height: 1.2;
-  letter-spacing: 0.01em;
-}
-#ar-fab.ar-fab-no-thumb {
-  padding: 10px 16px;
 }
 
 /* ── Pre-modal splash (blur + loader) ─────────────────────────────────────────── */
@@ -97,6 +110,7 @@
   gap: 8px;
 }
 .ar-splash-icon-btn {
+  position: relative;
   width: 42px;
   height: 42px;
   padding: 0;
@@ -104,16 +118,32 @@
   border-radius: 5px;
   background: #fff;
   color: #111;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   box-shadow: 0 2px 10px rgba(0,0,0,.14);
   -webkit-tap-highlight-color: transparent;
+  line-height: 0;
 }
 .ar-splash-icon-btn svg {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
   width: 18px;
   height: 18px;
+  display: block;
+  flex-shrink: 0;
+}
+#ar-room-fullscreen .ar-icon-compress {
+  display: none;
+}
+#ar-room-fullscreen.ar-is-fullwidth .ar-icon-expand {
+  display: none;
+}
+#ar-room-fullscreen.ar-is-fullwidth .ar-icon-compress {
+  display: block;
 }
 .ar-splash-icon-btn:active {
   transform: scale(0.96);
@@ -167,30 +197,6 @@
   100% { transform: translateX(100%); }
 }
 .ar-splash-loader[hidden] { display: none !important; }
-.ar-splash-powered {
-  position: absolute;
-  left: 50%;
-  bottom: max(22px, env(safe-area-inset-bottom));
-  transform: translateX(-50%);
-  z-index: 2;
-  text-align: center;
-  color: #fff;
-  font-size: 13px;
-  line-height: 1.35;
-  text-shadow: 0 1px 6px rgba(0,0,0,.35);
-  pointer-events: none;
-  white-space: nowrap;
-}
-.ar-splash-powered strong {
-  font-weight: 700;
-}
-.ar-splash-powered small {
-  display: block;
-  margin-top: 3px;
-  font-size: 11px;
-  font-weight: 400;
-  opacity: 0.9;
-}
 
 /* ── Picture It layout: inset preview + full-width room image ───────────────── */
 #ar-room {
@@ -243,15 +249,6 @@
   display: flex;
   gap: 8px;
   pointer-events: auto;
-}
-#ar-room-fullscreen .ar-icon-compress {
-  display: none;
-}
-#ar-room-fullscreen.ar-is-fullwidth .ar-icon-expand {
-  display: none;
-}
-#ar-room-fullscreen.ar-is-fullwidth .ar-icon-compress {
-  display: block;
 }
 
 .ar-chrome-toggle.ar-show-ui-toggle {
@@ -366,6 +363,8 @@
   border-radius: 12px;
   background: transparent;
   flex-shrink: 0;
+  perspective: 1400px;
+  perspective-origin: center center;
 }
 /* Default: use full preview width, image keeps aspect ratio */
 .ar-viewport-canvas:not(.ar-canvas-fill) {
@@ -492,6 +491,7 @@
   cursor: grab;
   touch-action: none;
   transform-origin: center center;
+  transform-style: preserve-3d;
   background: transparent;
   overflow: visible;
 }
@@ -1261,12 +1261,13 @@
 /* ── Mobile ──────────────────────────────────────────────────────────────────── */
 @media (max-width: 640px) {
   #ar-fab {
-    bottom: max(20px, env(safe-area-inset-bottom));
-    font-size: 13px;
-    padding: 6px 14px 6px 6px;
-    min-height: 42px;
+    font-size: 12px;
+    padding: 13px 20px;
+    min-height: 46px;
   }
-  .ar-fab-thumb { width: 40px; height: 46px; }
+  #ar-fab:not(.ar-fab-inline) {
+    bottom: max(20px, env(safe-area-inset-bottom));
+  }
   #ar-room {
     padding: max(24px, env(safe-area-inset-top)) 16px max(76px, calc(env(safe-area-inset-bottom) + 60px)) 16px;
   }
