@@ -5,6 +5,20 @@
   {% assign title = product.title | escape %}
   {% assign width = product.metafields.ar_viewer.width_cm | default: '60' %}
   {% assign height = product.metafields.ar_viewer.height_cm | default: '40' %}
+  {% assign cv = product.selected_or_first_available_variant %}
+  {% assign init_size = '' %}
+  {% assign init_frame = '' %}
+  {% for opt in product.options %}
+    {% assign idx = forloop.index %}
+    {% case idx %}
+      {% when 1 %}{% assign oval = cv.option1 %}
+      {% when 2 %}{% assign oval = cv.option2 %}
+      {% when 3 %}{% assign oval = cv.option3 %}
+    {% endcase %}
+    {% assign opt_lc = opt | downcase %}
+    {% if opt_lc contains 'size' %}{% assign init_size = oval %}{% endif %}
+    {% if opt_lc contains 'fram' %}{% assign init_frame = oval %}{% endif %}
+  {% endfor %}
 
   <div id="ps-root"
     data-title="{{ title }}"
@@ -13,6 +27,12 @@
     data-img-h="{{ feat.height | default: 0 }}"
     data-width="{{ width }}"
     data-height="{{ height }}"
+    data-init-size="{{ init_size | escape }}"
+    data-init-frame="{{ init_frame | escape }}"
+    data-room-0="{{ 'room-empty-wall.png' | asset_url }}"
+    data-room-1="{{ 'room-living-2.jpg' | asset_url }}"
+    data-room-2="{{ 'room-bedroom-12.jpg' | asset_url }}"
+    data-room-3="{{ 'room-study-8.jpg' | asset_url }}"
   ></div>
 
   <script type="application/json" id="ps-product-data">

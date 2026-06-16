@@ -11,10 +11,7 @@
   {% assign title  = product.title | escape %}
   {% assign width  = product.metafields.ar_viewer.width_cm  | default: '60' %}
   {% assign height = product.metafields.ar_viewer.height_cm | default: '40' %}
-  {% assign backend = block.settings.backend_url | strip %}
-  {% if backend == blank %}
-    {% assign backend = 'https://' | append: shop.permanent_domain | append: '/apps/ar-preview' %}
-  {% endif %}
+  {% assign backend = shop.url | append: '/apps/ar-preview' %}
 
   <div id="ar-root"
     data-title="{{ title }}"
@@ -59,13 +56,6 @@
   "name": "VR Viewer",
   "target": "body",
   "templates": ["product"],
-  "settings": [
-    {
-      "type": "text",
-      "id": "backend_url",
-      "label": "App backend URL",
-      "info": "For mobile testing: paste your Cloudflare tunnel URL from 'shopify app dev' (e.g. https://xxx.trycloudflare.com). Leave blank to use /apps/ar-preview on your store."
-    }
-  ]
+  "settings": []
 }
 {% endschema %}

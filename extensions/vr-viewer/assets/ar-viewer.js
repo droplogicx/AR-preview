@@ -1417,7 +1417,7 @@
   function fetchAndLaunch() {
     if (arInProgress) return;
     if (!BACKEND) {
-      alert('AR backend is not configured. Re-save the theme or set the App backend URL in VR Viewer block settings.');
+      alert('AR backend is not configured. Ensure the AR Preview app is installed and the app proxy is enabled.');
       return;
     }
     if (isMobile) {
