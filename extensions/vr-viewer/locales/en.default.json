@@ -4,7 +4,7 @@
   "customize": "Customize",
   "upload": "Upload",
   "save": "Save",
-  "view_in_ar": "View in AR",
+  "view_in_ar": "View in Room",
   "scan_qr": "Scan to view in AR",
   "qr_instruction": "Scan the QR code with your phone to view in AR.",
   "model_generating": "Preparing AR model…",

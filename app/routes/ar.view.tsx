@@ -62,9 +62,27 @@ const sharedStyles = `
     h1 { font-size: 21px; font-weight: 600; margin-bottom: 10px; }
     .ar-status { color: rgba(255,255,255,.78); margin-bottom: 20px; max-width: 320px; min-height: 48px; }
     .ar-status.error { color: #ff8a8a; }
-    model-viewer {
-      width: min(100%, 360px); height: 38vh; max-height: 320px;
-      background: #1a1a1a; border-radius: 12px; margin-bottom: 20px;
+    .ar-preview-box {
+      width: min(100%, 360px);
+      height: min(52vw, 320px);
+      max-height: 320px;
+      aspect-ratio: 4 / 3;
+      background: #1a1a1a;
+      border-radius: 12px;
+      margin-bottom: 20px;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35);
+    }
+    .ar-preview-box model-viewer {
+      width: 100%;
+      height: 100%;
+      background: #1a1a1a;
+      border-radius: 0;
+      margin-bottom: 0;
+      pointer-events: none;
+      touch-action: none;
+      --progress-bar-color: transparent;
     }
     model-viewer::part(default-ar-button) { display: none; }
     .ar-launch {
@@ -80,6 +98,32 @@ const sharedStyles = `
     }
     .ar-hint { color: rgba(255,255,255,.5); font-size: 13px; margin-top: 18px; max-width: 300px; line-height: 1.5; }
     .ar-ql-img { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+`;
+
+const previewViewerAttrs = `
+    camera-orbit="0deg 90deg auto"
+    min-camera-orbit="auto 90deg auto"
+    max-camera-orbit="auto 90deg auto"
+    field-of-view="28deg"
+    interaction-prompt="none"
+    disable-pan
+    disable-zoom
+    disable-tap
+    touch-action="none"
+    shadow-intensity="0"
+    exposure="1.1"
+    crossorigin="anonymous"
+`;
+
+const lockPreviewScript = `
+      function lockPreview(mv) {
+        if (!mv) return;
+        mv.cameraOrbit = '0deg 90deg auto';
+        mv.minCameraOrbit = 'auto 90deg auto';
+        mv.maxCameraOrbit = 'auto 90deg auto';
+        mv.fieldOfView = '28deg';
+        mv.style.pointerEvents = 'none';
+      }
 `;
 
 /** iOS: GLB preview + Apple-native Quick Look link (most reliable wall placement). */
@@ -98,15 +142,13 @@ function iosQuickLookHtml(glbSrc: string, usdzSrc: string, safeTitle: string): s
   <h1>${safeTitle}</h1>
   <p class="ar-status" id="ar-status">Loading preview…</p>
 
-  <model-viewer
-    id="ar-mv"
-    alt="${safeTitle}"
-    camera-controls
-    touch-action="pan-y"
-    shadow-intensity="0"
-    exposure="1.1"
-    crossorigin="anonymous"
-  ></model-viewer>
+  <div class="ar-preview-box">
+    <model-viewer
+      id="ar-mv"
+      alt="${safeTitle}"
+      ${previewViewerAttrs}
+    ></model-viewer>
+  </div>
 
   <a rel="ar" class="ar-launch ar-disabled" id="ar-ql-link" href="#" aria-disabled="true">
     <img class="ar-ql-img" src="${QL_POSTER}" alt="" width="1" height="1"/>
@@ -121,6 +163,7 @@ function iosQuickLookHtml(glbSrc: string, usdzSrc: string, safeTitle: string): s
       var status = document.getElementById('ar-status');
       var mv = document.getElementById('ar-mv');
       var link = document.getElementById('ar-ql-link');
+${lockPreviewScript}
 
       function absUrl(src) {
         if (!src) return '';
@@ -174,7 +217,7 @@ function iosQuickLookHtml(glbSrc: string, usdzSrc: string, safeTitle: string): s
             enableLink();
             if (mv && glbUrl) {
               mv.src = glbUrl;
-              mv.addEventListener('load', function () {}, { once: true });
+              mv.addEventListener('load', function () { lockPreview(mv); }, { once: true });
               mv.addEventListener('error', function () {}, { once: true });
             }
           })
@@ -210,20 +253,17 @@ function androidWallArHtml(glbSrc: string, safeTitle: string): string {
   <h1>${safeTitle}</h1>
   <p class="ar-status" id="ar-status">Loading photo frame…</p>
 
-  <model-viewer
-    id="ar-mv"
-    alt="${safeTitle}"
-    ar
-    ar-modes="webxr scene-viewer"
-    ar-placement="wall"
-    ar-scale="auto"
-    interaction-prompt="none"
-    camera-controls
-    touch-action="pan-y"
-    shadow-intensity="0"
-    exposure="1.1"
-    crossorigin="anonymous"
-  ></model-viewer>
+  <div class="ar-preview-box">
+    <model-viewer
+      id="ar-mv"
+      alt="${safeTitle}"
+      ar
+      ar-modes="webxr scene-viewer"
+      ar-placement="wall"
+      ar-scale="auto"
+      ${previewViewerAttrs}
+    ></model-viewer>
+  </div>
 
   <button type="button" class="ar-launch" id="ar-launch-btn" disabled>Place on Wall</button>
   <p class="ar-hint">Point at a wall, tap to place, pinch to zoom.</p>
@@ -235,6 +275,7 @@ function androidWallArHtml(glbSrc: string, safeTitle: string): string {
       var status = document.getElementById('ar-status');
       var btn = document.getElementById('ar-launch-btn');
       var ready = false;
+${lockPreviewScript}
 
       function setStatus(msg, isError) {
         if (!status) return;
@@ -244,6 +285,7 @@ function androidWallArHtml(glbSrc: string, safeTitle: string): string {
 
       function markReady() {
         ready = true;
+        lockPreview(mv);
         if (btn) btn.disabled = false;
         if (mv && mv.canActivateAR === false) {
           setStatus('Update Chrome and Google Play Services for AR, then try again.', true);

@@ -3,6 +3,7 @@ import { authenticate } from "../shopify.server";
 import { loader as arModelLoader, action as arModelAction } from "./api.ar-model";
 import { loader as arModelFileLoader } from "./api.ar-model.file.$name";
 import { loader as arViewLoader } from "./ar.view";
+import { loader as arViewerSettingsLoader } from "./api.ar-viewer-settings";
 
 async function verifyProxy(request: Request) {
   try {
@@ -24,6 +25,10 @@ export async function loader({
 }) {
   await verifyProxy(request);
   const subpath = (params["*"] || "").replace(/^\//, "");
+
+  if (subpath === "api/settings") {
+    return arViewerSettingsLoader({ request });
+  }
 
   if (subpath === "api/ar-model") {
     return arModelLoader({ request });

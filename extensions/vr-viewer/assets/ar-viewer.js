@@ -4,6 +4,25 @@
   var root = document.getElementById('ar-root');
   if (!root) return;
 
+  function removeArViewerDom() {
+    root.remove();
+    ['ar-rooms-data', 'ar-fab', 'ar-room', 'ar-splash'].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) el.remove();
+    });
+  }
+
+  var backendPreview = (root.dataset.backend || '').replace(/\/$/, '');
+  var shopPreview = root.dataset.shop || '';
+  if (!backendPreview && typeof window.Shopify !== 'undefined' && window.Shopify.shop) {
+    backendPreview = 'https://' + window.Shopify.shop + '/apps/ar-preview';
+  } else if (!backendPreview && shopPreview) {
+    backendPreview = 'https://' + shopPreview + '/apps/ar-preview';
+  }
+  var productId = root.dataset.productId || '';
+
+  function continueInit() {
+
   var TITLE    = root.dataset.title   || 'Product';
   var IMG      = root.dataset.img     || '';
   var IMG_THUMB = root.dataset.imgThumb || '';
@@ -35,6 +54,7 @@
   }
 
   var productRatio = null;
+  var PRODUCT_ONLY_PREVIEW = true;
 
   var ua        = navigator.userAgent || '';
   var isIOS     = /iphone|ipad|ipod/i.test(ua);
@@ -431,6 +451,23 @@
     var scale = state.sizeScale || presetScale(SIZE_PRESETS[state.sizeIndex]);
     var w, h;
 
+    if (PRODUCT_ONLY_PREVIEW) {
+      var fit = Math.min(vpW, vpH) || 300;
+      var base = fit * 0.5;
+      if (ratio >= 1) {
+        h = base * scale;
+        w = h / ratio;
+      } else {
+        w = base * scale;
+        h = w * ratio;
+      }
+      var maxW = vpW * 0.9;
+      var maxH = vpH * 0.9;
+      if (w > maxW) { w = maxW; h = w * ratio; }
+      if (h > maxH) { h = maxH; w = h / ratio; }
+      return { w: Math.round(Math.max(24, w)), h: Math.round(Math.max(24, h)) };
+    }
+
     if (ratio >= 1) {
       h = Math.min(vpH * 0.62, 240) * scale;
       w = h / ratio;
@@ -500,21 +537,11 @@
     }).join('');
 
     var thumbs = buildThumbsHtml();
-
-    var paintSwatches = WALL_PAINT_COLORS.map(function (c) {
-      var active = state.paintId === c.id;
-      var checkCls = active ? (isLightColor(c.color) ? ' ar-check-dark' : ' ar-check-light') : '';
-      return '<button type="button" class="ar-paint-swatch' + (active ? ' ar-active' : '') + checkCls + '"' +
-        ' data-paint="' + c.id + '" data-hex="' + c.color + '" title="' + c.label + '" style="background:' + c.color + '"></button>';
-    }).join('');
+    var canvasCls = 'ar-viewport-canvas' + (PRODUCT_ONLY_PREVIEW ? ' ar-product-only' : '');
 
     roomEl.innerHTML =
       '<div class="ar-room-chrome">' +
         '<div class="ar-room-top">' +
-          '<button type="button" class="ar-splash-icon-btn" id="ar-room-fullscreen" aria-label="Full width" aria-pressed="false">' +
-            '<svg class="ar-icon-expand" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M15 4.88897V3.33308C15 2.71431 14.7542 2.12088 14.3167 1.68334C13.8791 1.24581 13.2857 1 12.6669 1H10.3331M10.3331 15H12.6669C13.2857 15 13.8791 14.7542 14.3167 14.3167C14.7542 13.8791 15 13.2857 15 12.6669V11.1103M1 11.111V12.6669C1 13.2857 1.24581 13.8791 1.68334 14.3167C2.12088 14.7542 2.71431 15 3.33308 15H5.66692M5.66692 1H3.33308C2.71431 1 2.12088 1.24581 1.68334 1.68334C1.24581 2.12088 1 2.71431 1 3.33308V4.88973" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>' +
-            '<svg class="ar-icon-compress" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><g fill="none" fill-rule="evenodd" stroke="currentColor" stroke-width="1.5"><path d="m3 6v-3h3" transform="matrix(-1 0 0 -1 9 9)"></path><path d="m14 6v-3h3" transform="matrix(0 -1 1 0 11 20)"></path><path d="m14 17v-3h3"></path><path d="m3 17v-3h3" transform="matrix(0 1 -1 0 20 11)"></path></g></svg>' +
-          '</button>' +
           '<button type="button" class="ar-splash-icon-btn" id="ar-room-close" aria-label="Close">' +
             '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' +
           '</button>' +
@@ -524,44 +551,9 @@
           '<span class="ar-knob-track"><span class="ar-knob-thumb"></span></span>' +
           '<span>Show interface</span>' +
         '</label>' +
-        '<div class="ar-size-slider" id="ar-size-slider">' +
-          '<div class="ar-size-slider-track" id="ar-size-track">' +
-            '<div class="ar-size-slider-fill" id="ar-size-fill"></div>' +
-            '<button type="button" class="ar-size-slider-thumb" id="ar-size-thumb" aria-label="Drag to resize"></button>' +
-          '</div>' +
-        '</div>' +
         '<div class="ar-room-bottom-chrome">' +
           '<div class="ar-room-bottom-left">' +
             '<div class="ar-toolbar ar-toolbar-left">' +
-              '<div class="ar-popover-anchor ar-popover-anchor-left">' +
-                '<button type="button" class="ar-action-btn' + (state.activePanel === 'settings' ? ' ar-active' : '') + '" id="ar-btn-settings" aria-label="Settings">' +
-                  '<span class="ar-action-label">Settings</span><svg height="20" viewBox="0 0 20 20" width="20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><g fill="none" fill-rule="evenodd" stroke="currentColor" stroke-width="1.5" transform="matrix(.70710678 -.70710678 .70710678 .70710678 2.221748 13.535775)"><path d="m3.5 6v-2"></path><path d="m6.5 6v-2m3 2v-2m3 2v-2m-7.5-4v2m6-2v2"></path><path d="m0 0h16v6h-16z"></path></g></svg>' +
-                '</button>' +
-                '<div class="ar-popover ar-settings-popover' + (state.activePanel === 'settings' ? ' ar-open' : '') + '" id="ar-settings-panel">' +
-                  '<div class="ar-panel-head">' +
-                    '<strong>Settings</strong>' +
-                    '<button type="button" class="ar-panel-reset" id="ar-reset-settings" title="Reset" aria-label="Reset settings">' +
-                      '<svg height="20" viewBox="0 0 20 20" width="20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">' +
-                        '<g fill="none" fill-rule="evenodd">' +
-                          '<path d="m3.5 9.75c0-3.72792206 3.02207794-6.75 6.75-6.75 3.7279221 0 6.75 3.02207794 6.75 6.75 0 3.7279221-3.0220779 6.75-6.75 6.75-1.5815153 0-3.03599602-.5438997-4.18659337-1.4548503" stroke="currentColor" stroke-linecap="round" stroke-width="1.5"></path>' +
-                          '<path d="m1.13684501 9.5077492 1.97891304 3.4670041c.13688857.2398252.44227542.3232719.68210063.1863833.0776802-.0443387.1420446-.1087031.18638327-.1863833l2.01824675-3.53591574c.13688857-.23982521.05344194-.54521206-.18638327-.68210063-.15462952-.08826017-.3445275-.08763474-.4985723.00164204l-1.84702009 1.07044197-1.63981362-.99624924c-.23600167-.14338-.54355127-.06829531-.68693128.16770636-.09436699.15532687-.09701772.34962776-.00692313.50747114z" fill="currentColor"></path>' +
-                        '</g>' +
-                      '</svg>' +
-                    '</button>' +
-                  '</div>' +
-                  '<label class="ar-field ar-range-field">Angle<input type="range" id="ar-angle" min="-30" max="30" value="' + state.angle + '"/></label>' +
-                  '<label class="ar-field ar-range-field">Level<input type="range" id="ar-level" min="-30" max="30" value="' + state.level + '"/></label>' +
-                  '<div class="ar-field-row ar-settings-inputs">' +
-                    '<label class="ar-field ar-field-half">Space Width' +
-                      '<input type="number" id="ar-space-width" step="0.01" min="0.01" value="' + state.spaceWidth.toFixed(2) + '"/>' +
-                    '</label>' +
-                    '<label class="ar-field ar-field-half">Unit' +
-                      '<select id="ar-unit"><option value="feet"' + (state.unit === 'feet' ? ' selected' : '') + '>Feet</option>' +
-                      '<option value="meters"' + (state.unit === 'meters' ? ' selected' : '') + '>Meters</option></select>' +
-                    '</label>' +
-                  '</div>' +
-                '</div>' +
-              '</div>' +
               '<div class="ar-popover-anchor ar-popover-anchor-left">' +
                 '<button type="button" class="ar-action-btn' + (state.activePanel === 'help' ? ' ar-active' : '') + '" id="ar-btn-help" aria-label="Help">' +
                   '<span class="ar-action-label">Help</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>' +
@@ -571,19 +563,19 @@
                   '<h3>Help</h3>' +
                   '<ul class="ar-help-list">' +
                     '<li><span class="ar-help-icon">&#x1F4F1;</span><span>Live preview this product in your own 3D space/room using AR</span></li>' +
-                    '<li><span class="ar-help-icon">&#x2B07;</span><span>Save your newly curated product with your selected background to your device</span></li>' +
-                    '<li><span class="ar-help-icon">&#x1F5BC;</span><span>Upload your own background from your files</span></li>' +
-                    '<li><span class="ar-help-icon">&#x2699;</span><span>Configure angles, levels, and background frame within the Settings</span></li>' +
+                    '<li><span class="ar-help-icon">&#x1F5BC;</span><span>Product preview scales with the size you select in Customize</span></li>' +
+                    '<li><span class="ar-help-icon">&#x2699;</span><span>Use Customize to change size, frame, and border options</span></li>' +
                   '</ul>' +
                 '</div>' +
               '</div>' +
             '</div>' +
           '</div>' +
           '<div class="ar-room-bottom-right">' +
-            '<div class="ar-room-bottom-right-col">' +
+            '<div class="ar-toolbar ar-toolbar-right ar-toolbar-actions-row">' +
               '<div class="ar-popover-anchor ar-popover-anchor-right ar-popover-anchor-customize">' +
-                '<button type="button" class="ar-customize-toggle' + (state.activePanel === 'customize' ? ' ar-open' : '') + '" id="ar-btn-customize">' +
-                  'Customize<svg class="ar-chevron" viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>' +
+                '<button type="button" class="ar-action-btn' + (state.activePanel === 'customize' ? ' ar-active' : '') + '" id="ar-btn-customize" aria-label="Customize">' +
+                  '<span class="ar-action-label">Customize</span>' +
+                  '<svg class="ar-chevron" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>' +
                 '</button>' +
                 '<div class="ar-popover ar-customize-popover' + (state.activePanel === 'customize' ? ' ar-open' : '') + '" id="ar-customize-panel">' +
                   '<label class="ar-field">Size<select id="ar-size">' + sizeOpts + '</select></label>' +
@@ -597,30 +589,9 @@
                   '</div>' +
                 '</div>' +
               '</div>' +
-              '<div class="ar-toolbar ar-toolbar-right">' +
-                '<div class="ar-popover-anchor ar-popover-anchor-right ar-popover-anchor-paint">' +
-                  '<button type="button" class="ar-action-btn' + (state.activePanel === 'paint' ? ' ar-active' : '') + '" id="ar-btn-paint" aria-label="Paint">' +
-                    '<span class="ar-action-label">Paint</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg>' +
-                  '</button>' +
-                  '<div class="ar-popover ar-paint-popover' + (state.activePanel === 'paint' ? ' ar-open' : '') + '" id="ar-paint-panel">' +
-                    '<div class="ar-paint-swatches">' + paintSwatches + '</div>' +
-                    '<button type="button" class="ar-paint-custom-btn' + (state.paintId === 'custom' ? ' ar-active' : '') + '" id="ar-paint-custom-trigger">Pick other colors</button>' +
-                    '<input type="color" id="ar-paint-custom-input" class="ar-paint-custom-input" value="' + (state.customPaintColor || DEFAULT_PAINT_COLOR) + '"/>' +
-                  '</div>' +
-                '</div>' +
-                '<button type="button" class="ar-action-btn" id="ar-btn-upload" aria-label="Upload">' +
-                  '<span class="ar-action-label">Upload</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>' +
-                '</button>' +
-                '<button type="button" class="ar-action-btn" id="ar-btn-save" aria-label="Save">' +
-                  '<span class="ar-save-label">Save</span>' +
-                  '<span class="ar-save-icon-slot" aria-hidden="true">' +
-                    '<svg class="ar-save-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>' +
-                    '<span class="ar-save-spinner" aria-hidden="true"></span>' +
-                  '</span>' +
-                '</button>' +
-                '<div class="ar-popover-anchor ar-popover-anchor-right ar-popover-anchor-ar">' +
-                  '<button type="button" class="ar-action-btn ar-action-ar' + (state.activePanel === 'ar' ? ' ar-active' : '') + '" id="ar-btn-vr" aria-label="View in AR">' +
-                    '<span class="ar-action-label">View in AR</span>' +
+              '<div class="ar-popover-anchor ar-popover-anchor-right ar-popover-anchor-ar">' +
+                '<button type="button" class="ar-action-btn ar-action-ar' + (state.activePanel === 'ar' ? ' ar-active' : '') + '" id="ar-btn-vr" aria-label="View in Room">' +
+                  '<span class="ar-action-label">View in Room</span>' +
                     '<span class="ar-save-icon-slot" aria-hidden="true">' +
                       '<svg class="ar-ar-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M7.24932 3.2763L4.16553 4.98808C3.92503 5.12228 3.7248 5.31837 3.58561 5.55602C3.44643 5.79368 3.37335 6.06424 3.37397 6.33965V9.6603C3.37335 9.93571 3.44643 10.2063 3.58561 10.4439C3.7248 10.6816 3.92503 10.8777 4.16553 11.0119L7.24932 12.7237C7.4789 12.8514 7.73729 12.9185 8.00002 12.9185C8.26276 12.9185 8.52114 12.8514 8.75072 12.7237L11.8345 11.0119C12.075 10.8777 12.2752 10.6816 12.4144 10.4439C12.5536 10.2063 12.6267 9.93571 12.6261 9.6603V6.33965C12.6267 6.06424 12.5536 5.79368 12.4144 5.55602C12.2752 5.31837 12.075 5.12228 11.8345 4.98808L8.75072 3.2763C8.52114 3.14854 8.26276 3.08148 8.00002 3.08148C7.73729 3.08148 7.4789 3.14854 7.24932 3.2763Z" stroke="currentColor" stroke-width="1.5"></path><path d="M12.3128 5.40962L8.00001 8M8.00001 8L3.68726 5.40962M8.00001 8V12.9144" stroke="currentColor" stroke-width="1.5"></path><path d="M15 4.88897V3.33308C15 2.71431 14.7542 2.12088 14.3167 1.68334C13.8791 1.24581 13.2857 1 12.6669 1H10.3331M10.3331 15H12.6669C13.2857 15 13.8791 14.7542 14.3167 14.3167C14.7542 13.8791 15 13.2857 15 12.6669V11.1103M1 11.111V12.6669C1 13.2857 1.24581 13.8791 1.68334 14.3167C2.12088 14.7542 2.71431 15 3.33308 15H5.66692M5.66692 1H3.33308C2.71431 1 2.12088 1.24581 1.68334 1.68334C1.24581 2.12088 1 2.71431 1 3.33308V4.88973" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>' +
                       '<span class="ar-save-spinner ar-ar-spinner" aria-hidden="true"></span>' +
@@ -633,7 +604,6 @@
                     '<div class="ar-qr-img" id="ar-qr-img"></div>' +
                   '</div>' +
                 '</div>' +
-              '</div>' +
             '</div>' +
           '</div>' +
         '</div>' +
@@ -642,9 +612,11 @@
         '<div class="ar-room-stage">' +
           '<div class="ar-room-viewport" id="ar-viewport">' +
             '<div class="ar-room-preview-wrap">' +
-              '<div class="ar-viewport-canvas" id="ar-viewport-canvas">' +
-                '<img class="ar-room-bg" id="ar-bg" src="' + currentBgUrl() + '" alt="" draggable="false" loading="eager"/>' +
-                '<div class="ar-wall-tint" id="ar-wall-tint"></div>' +
+              '<div class="' + canvasCls + '" id="ar-viewport-canvas">' +
+                (PRODUCT_ONLY_PREVIEW
+                  ? '<img class="ar-room-bg" id="ar-bg" alt="" hidden aria-hidden="true"/>'
+                  : '<img class="ar-room-bg" id="ar-bg" src="' + currentBgUrl() + '" alt="" draggable="false" loading="eager"/>') +
+                '<div class="ar-wall-tint" id="ar-wall-tint"' + (PRODUCT_ONLY_PREVIEW ? ' hidden' : '') + '></div>' +
                 '<div class="ar-product-wrap" id="ar-product-wrap">' +
                   '<div class="ar-product-frame" id="ar-product-frame">' +
                     '<div class="ar-product-mat" id="ar-product-mat">' +
@@ -653,9 +625,10 @@
                   '</div>' +
                 '</div>' +
               '</div>' +
-              '<div class="ar-ui-layer">' +
-                '<div class="ar-thumb-strip">' + thumbs + '</div>' +
-              '</div>' +
+              (PRODUCT_ONLY_PREVIEW ? '' :
+                '<div class="ar-ui-layer">' +
+                  '<div class="ar-thumb-strip">' + thumbs + '</div>' +
+                '</div>') +
             '</div>' +
             '<div class="ar-loading-overlay" id="ar-loading" hidden>' +
               '<div class="ar-spinner"></div>' +
@@ -663,7 +636,6 @@
             '</div>' +
           '</div>' +
         '</div>' +
-        '<input type="file" id="ar-bg-upload" accept="image/*" hidden/>' +
       '</div>';
 
     cacheEls();
@@ -676,6 +648,7 @@
       if (prodImg.complete) onProductImgLoad(prodImg);
     }
 
+    if (els.bg && !PRODUCT_ONLY_PREVIEW) {
     els.bg.addEventListener('error', function onBgError() {
       var room = getRoom(state.roomIndex);
       if (!room || room.uploaded) {
@@ -695,13 +668,18 @@
       }
       els.bg.removeEventListener('error', onBgError);
     });
-    els.bg.addEventListener('load', function () {
-      fitCanvasToBackground(els.bg);
-      renderViewport();
-    });
-    if (els.bg.complete && els.bg.naturalWidth > 0) {
-      fitCanvasToBackground(els.bg);
     }
+    if (!PRODUCT_ONLY_PREVIEW && els.bg) {
+      els.bg.addEventListener('load', function () {
+        fitCanvasToBackground(els.bg);
+        renderViewport();
+      });
+      if (els.bg.complete && els.bg.naturalWidth > 0) {
+        fitCanvasToBackground(els.bg);
+      }
+    }
+
+    if (PRODUCT_ONLY_PREVIEW) roomEl.classList.add('ar-product-only');
 
     renderViewport();
     syncInterfaceUI();
@@ -750,6 +728,19 @@
     return els.canvas || els.viewport;
   }
 
+  function fitProductOnlyCanvas() {
+    if (!els.canvas) return;
+    els.canvas.classList.add('ar-product-only');
+    els.canvas.style.aspectRatio = '1';
+    els.canvas.style.width = '100%';
+    els.canvas.style.background = 'transparent';
+    if (els.bg) {
+      els.bg.hidden = true;
+      els.bg.removeAttribute('src');
+    }
+    if (els.wallTint) els.wallTint.hidden = true;
+  }
+
   function fitCanvasToBackground(img) {
     if (!els.canvas) return;
     var isFull = roomEl.classList.contains('ar-room-fullwidth');
@@ -788,16 +779,24 @@
   }
 
   function renderViewport() {
-    if (!els.bg) return;
-    var bgUrl = currentBgUrl();
-    if (bgUrl && els.bg.getAttribute('src') !== bgUrl) {
-      els.bg.setAttribute('src', bgUrl);
+    if (!els.canvas || !els.productWrap) return;
+
+    if (PRODUCT_ONLY_PREVIEW) {
+      fitProductOnlyCanvas();
+      state.posX = 50;
+      state.posY = 50;
+    } else {
+      if (!els.bg) return;
+      var bgUrl = currentBgUrl();
+      if (bgUrl && els.bg.getAttribute('src') !== bgUrl) {
+        els.bg.setAttribute('src', bgUrl);
+      }
+      if (els.canvas) {
+        els.canvas.style.backgroundImage = 'none';
+      }
+      fitCanvasToBackground(els.bg);
+      applyWallTint();
     }
-    if (els.canvas) {
-      els.canvas.style.backgroundImage = 'none';
-    }
-    fitCanvasToBackground(els.bg);
-    applyWallTint();
 
     var size = productScale();
     var outerCm = outerSizeCm();
@@ -868,10 +867,8 @@
   function syncPanelUI() {
     var p = state.activePanel;
     var map = [
-      ['ar-settings-panel', 'settings', 'ar-btn-settings'],
       ['ar-customize-panel', 'customize', 'ar-btn-customize'],
       ['ar-help-panel', 'help', 'ar-btn-help'],
-      ['ar-paint-panel', 'paint', 'ar-btn-paint'],
       ['ar-qr-popover', 'ar', 'ar-btn-vr']
     ];
     map.forEach(function (item) {
@@ -880,8 +877,6 @@
       if (panel) panel.classList.toggle('ar-open', p === item[1]);
       if (btn) btn.classList.toggle('ar-active', p === item[1]);
     });
-    var customizeBtn = document.getElementById('ar-btn-customize');
-    if (customizeBtn) customizeBtn.classList.toggle('ar-open', p === 'customize');
   }
 
   function syncInterfaceUI() {
@@ -950,6 +945,7 @@
 
   // ── Drag product on room background ───────────────────────────────────────────
   function enableDrag() {
+    if (PRODUCT_ONLY_PREVIEW) return;
     var dragging = false;
     var startX, startY, origX, origY;
 
@@ -1280,7 +1276,7 @@
 
       function finishWithBg(bgImg) {
         try {
-          if (bgImg) {
+          if (bgImg && !PRODUCT_ONLY_PREVIEW) {
             if (state.showFullBg) {
               var imgRatio = bgImg.width / bgImg.height;
               var canvasRatio = exportW / exportH;
@@ -1301,7 +1297,11 @@
               ctx.drawImage(bgImg, 0, 0, exportW, exportH);
             }
           }
-          if (state.wallTint) {
+          if (!bgImg || PRODUCT_ONLY_PREVIEW) {
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, exportW, exportH);
+          }
+          if (state.wallTint && !PRODUCT_ONLY_PREVIEW) {
             var wall = currentWall();
             var wx = (wall.left / 100) * exportW;
             var wy = (wall.top / 100) * exportH;
@@ -1532,26 +1532,18 @@
     });
     roomEl.addEventListener('click', function (e) {
       if (Date.now() < blockBackdropCloseUntil) return;
-      if (e.target.closest('.ar-size-slider')) return;
       if (e.target === roomEl) closeRoom();
     });
 
-    document.getElementById('ar-btn-settings').addEventListener('click', function (e) {
-      e.stopPropagation();
-      togglePanel('settings');
-    });
-    document.getElementById('ar-btn-customize').addEventListener('click', function (e) {
+    var customizeBtn = document.getElementById('ar-btn-customize');
+    if (customizeBtn) customizeBtn.addEventListener('click', function (e) {
       e.stopPropagation();
       togglePanel('customize');
     });
-    document.getElementById('ar-btn-help').addEventListener('click', function (e) {
+    var helpBtn = document.getElementById('ar-btn-help');
+    if (helpBtn) helpBtn.addEventListener('click', function (e) {
       e.stopPropagation();
       togglePanel('help');
-    });
-    document.getElementById('ar-btn-paint').addEventListener('click', function (e) {
-      e.stopPropagation();
-      if (this.disabled || !isRoomPaintable(state.roomIndex)) return;
-      togglePanel('paint');
     });
     var helpClose = document.getElementById('ar-help-close');
     if (helpClose) helpClose.addEventListener('click', function (e) {
@@ -1565,57 +1557,8 @@
       syncInterfaceUI();
     });
 
-    roomEl.querySelectorAll('.ar-paint-swatch').forEach(function (btn) {
-      btn.addEventListener('click', function (e) {
-        e.stopPropagation();
-        applyPaintColor(btn.dataset.paint);
-      });
-    });
-
-    var paintCustomTrigger = document.getElementById('ar-paint-custom-trigger');
-    var paintCustomInput = document.getElementById('ar-paint-custom-input');
-    if (paintCustomTrigger && paintCustomInput) {
-      paintCustomTrigger.addEventListener('click', function (e) {
-        e.stopPropagation();
-        paintCustomInput.click();
-      });
-      paintCustomInput.addEventListener('input', function (e) {
-        applyPaintColor('custom', e.target.value);
-      });
-      paintCustomInput.addEventListener('change', function (e) {
-        applyPaintColor('custom', e.target.value);
-      });
-    }
-
-    document.getElementById('ar-angle').addEventListener('input', function (e) {
-      state.angle = parseFloat(e.target.value); renderViewport();
-    });
-    document.getElementById('ar-level').addEventListener('input', function (e) {
-      state.level = parseFloat(e.target.value); renderViewport();
-    });
-    var pitchEl = document.getElementById('ar-pitch');
-    if (pitchEl) pitchEl.addEventListener('input', function (e) {
-      state.pitch = parseFloat(e.target.value); renderViewport();
-    });
-    document.getElementById('ar-space-width').addEventListener('change', function (e) {
-      var val = parseFloat(e.target.value);
-      if (!isNaN(val) && val > 0) applySpaceWidthInput(val);
-    });
-    document.getElementById('ar-space-width').addEventListener('input', function (e) {
-      var val = parseFloat(e.target.value);
-      if (!isNaN(val) && val > 0) applySpaceWidthInput(val);
-    });
-    document.getElementById('ar-unit').addEventListener('change', function (e) {
-      state.unit = e.target.value;
-      syncSpaceWidthFields(false);
-    });
-    document.getElementById('ar-reset-settings').addEventListener('click', function (e) {
-      e.preventDefault();
-      e.stopPropagation();
-      resetSettings();
-    });
-
-    document.getElementById('ar-size').addEventListener('change', function (e) {
+    var sizeEl = document.getElementById('ar-size');
+    if (sizeEl) sizeEl.addEventListener('change', function (e) {
       state.sizeIndex = parseInt(e.target.value, 10);
       state.sizeScale = presetScale(SIZE_PRESETS[state.sizeIndex]);
       syncSpaceWidthFields(false);
@@ -1647,36 +1590,8 @@
 
     bindThumbEvents();
 
-    document.getElementById('ar-btn-upload').addEventListener('click', function () {
-      els.bgUpload.click();
-    });
-    els.bgUpload.addEventListener('change', function (e) {
-      var file = e.target.files && e.target.files[0];
-      if (!file) return;
-      var reader = new FileReader();
-      reader.onload = function (ev) {
-        SESSION_ROOMS.unshift({
-          name: 'Upload',
-          url: ev.target.result,
-          wall: DEFAULT_WALL,
-          productY: DEFAULT_WALL.top + DEFAULT_WALL.height * 0.45,
-          paintable: false,
-          uploaded: true
-        });
-        state.roomIndex = 0;
-        state.wallTint = isRoomPaintable(0) ? paintColorById(state.paintId) : null;
-        state.posX = 50;
-        state.posY = DEFAULT_WALL.top + DEFAULT_WALL.height * 0.45;
-        refreshThumbStrip();
-        renderViewport();
-        centerActiveThumb();
-      };
-      reader.readAsDataURL(file);
-      e.target.value = '';
-    });
-
-    document.getElementById('ar-btn-save').addEventListener('click', savePreview);
-    document.getElementById('ar-btn-vr').addEventListener('click', function (e) {
+    var vrBtn = document.getElementById('ar-btn-vr');
+    if (vrBtn) vrBtn.addEventListener('click', function (e) {
       e.stopPropagation();
       onViewAR();
     });
@@ -1689,12 +1604,11 @@
     document.addEventListener('click', function (e) {
       if (!roomEl.classList.contains('ar-open')) return;
       if (e.target.closest('.ar-popover-anchor') || e.target.closest('.ar-popover')) return;
-      if (state.activePanel === 'customize' || state.activePanel === 'paint' || state.activePanel === 'ar') closePopovers();
+      if (state.activePanel === 'customize' || state.activePanel === 'ar') closePopovers();
     });
 
     enableDrag();
     enablePinchZoom();
-    enableSizeSlider();
     syncCompactLayout();
     if (!window.__arCompactResizeBound) {
       window.__arCompactResizeBound = true;
@@ -1803,6 +1717,11 @@
   }
 
   function waitForRoomReady() {
+    var prodImg = document.getElementById('ar-product-img');
+    if (PRODUCT_ONLY_PREVIEW) {
+      return waitForImgElement(prodImg);
+    }
+
     var bgUrl = currentBgUrl();
     var root = document.getElementById('ar-root');
     var room = getRoom(state.roomIndex);
@@ -1810,7 +1729,6 @@
     var fallbackUrl = (room && !room.uploaded && builtinIndex >= 0 && root)
       ? root.getAttribute('data-room-' + builtinIndex)
       : null;
-    var prodImg = document.getElementById('ar-product-img');
 
     return waitForImgElement(els.bg).then(function (bgOk) {
       if (!bgOk && fallbackUrl && fallbackUrl !== bgUrl) {
@@ -1905,9 +1823,8 @@
     state.paintId = DEFAULT_PAINT_ID;
     state.customPaintColor = null;
     state.posX = 50;
-    var firstRoom = getRoom(0);
-    state.wallTint = isRoomPaintable(0) ? paintColorById(DEFAULT_PAINT_ID) : null;
-    state.posY = firstRoom ? (firstRoom.productY || 30) : 30;
+    state.posY = 50;
+    state.wallTint = null;
     openGeneration++;
     var gen = openGeneration;
 
@@ -1958,6 +1875,32 @@
       else if (y < lastY - 10)  fab.classList.remove('ar-fab-hide');
       lastY = y;
     }, { passive: true });
+  }
+
+  }
+
+  if (productId && backendPreview) {
+    fetch(
+      backendPreview + '/api/settings?product_id=' + encodeURIComponent(productId),
+      { credentials: 'same-origin' }
+    )
+      .then(function (res) { return res.ok ? res.json() : { enabled: true }; })
+      .then(function (data) {
+        if (data && data.enabled === false) {
+          removeArViewerDom();
+          return;
+        }
+        if (data && data.width != null) root.dataset.width = String(data.width);
+        if (data && data.height != null) root.dataset.height = String(data.height);
+        if (data && data.imageUrl) {
+          root.dataset.img = data.imageUrl;
+          root.dataset.imgThumb = data.imageThumb || data.imageUrl;
+        }
+        continueInit();
+      })
+      .catch(function () { continueInit(); });
+  } else {
+    continueInit();
   }
 
 })();

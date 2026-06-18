@@ -3,8 +3,8 @@
   {% assign feat = product.featured_image %}
   {% assign img = feat | image_url: width: 2048 %}
   {% assign title = product.title | escape %}
-  {% assign width = product.metafields.ar_viewer.width_cm | default: '60' %}
-  {% assign height = product.metafields.ar_viewer.height_cm | default: '40' %}
+  {% assign width = '60' %}
+  {% assign height = '40' %}
   {% assign cv = product.selected_or_first_available_variant %}
   {% assign init_size = '' %}
   {% assign init_frame = '' %}

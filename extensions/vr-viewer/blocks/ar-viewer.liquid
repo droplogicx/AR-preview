@@ -9,11 +9,10 @@
     {% assign img_thumb = '' %}
   {% endif %}
   {% assign title  = product.title | escape %}
-  {% assign width  = product.metafields.ar_viewer.width_cm  | default: '60' %}
-  {% assign height = product.metafields.ar_viewer.height_cm | default: '40' %}
-  {% assign backend = shop.url | append: '/apps/ar-preview' %}
+  {% assign backend = 'https://' | append: shop.permanent_domain | append: '/apps/ar-preview' %}
 
   <div id="ar-root"
+    data-product-id="{{ product.id }}"
     data-title="{{ title }}"
     data-img="{{ img }}"
     data-img-thumb="{{ img_thumb }}"
@@ -21,8 +20,8 @@
     data-img-h="{{ feat.height | default: 0 }}"
     data-backend="{{ backend | escape }}"
     data-shop="{{ shop.permanent_domain | escape }}"
-    data-width="{{ width }}"
-    data-height="{{ height }}"
+    data-width="60"
+    data-height="40"
     data-room-0="{{ 'room-living-2.jpg' | asset_url }}"
     data-room-1="{{ 'room-bedroom-12.jpg' | asset_url }}"
     data-room-2="{{ 'room-living-15.jpg' | asset_url }}"

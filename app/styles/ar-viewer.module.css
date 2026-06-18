@@ -1,0 +1,416 @@
+.choiceGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.choice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid #e3e3e3;
+  border-radius: 12px;
+  background: #fff;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.choice:hover {
+  background: #fafafa;
+}
+
+.choiceSelected {
+  border-color: #005bd3;
+  background: #f1f8ff;
+  box-shadow: 0 0 0 1px #005bd3;
+}
+
+.choiceInput {
+  margin: 0;
+  flex-shrink: 0;
+  accent-color: #005bd3;
+}
+
+.choiceLabel {
+  font-size: 14px;
+  font-weight: 500;
+  color: #303030;
+  line-height: 1.4;
+}
+
+.productsToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 4px;
+  margin-bottom: 12px;
+}
+
+.productCount {
+  font-size: 13px;
+  color: #616161;
+}
+
+.productList {
+  border: 1px solid #e3e3e3;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #fafafa;
+}
+
+.productRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: #fff;
+  border-bottom: 1px solid #ebebeb;
+  transition: background 0.12s ease;
+}
+
+.productRow:last-child {
+  border-bottom: none;
+}
+
+.productRow:hover {
+  background: #f7f7f7;
+}
+
+.productImage {
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  object-fit: cover;
+  flex-shrink: 0;
+  border: 1px solid #ebebeb;
+  background: #f1f1f1;
+}
+
+.productImagePlaceholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 500;
+  color: #8a8a8a;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.productTitle {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 450;
+  color: #303030;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deleteButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #8a8a8a;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    color 0.12s ease,
+    background 0.12s ease;
+}
+
+.deleteButton:hover:not(:disabled) {
+  color: #8e1f0b;
+  background: #fee9e8;
+}
+
+.deleteButton:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.emptyState {
+  margin-top: 4px;
+  padding: 28px 16px;
+  text-align: center;
+  border: 1px dashed #c9cccf;
+  border-radius: 12px;
+  background: #fafafa;
+  color: #616161;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.tabList {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.tabButton {
+  padding: 8px 14px;
+  border: 1px solid #c9cccf;
+  border-radius: 10px;
+  background: #fff;
+  color: #303030;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.tabButtonActive {
+  border-color: #005bd3;
+  background: #f1f8ff;
+  color: #005bd3;
+}
+
+.imageRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 14px 16px;
+  background: #fff;
+  border-bottom: 1px solid #ebebeb;
+}
+
+.imageRow:last-child {
+  border-bottom: none;
+}
+
+.imageEmptyPlaceholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed #c9cccf;
+  background: #f6f6f7;
+  color: #8a8a8a;
+  flex-shrink: 0;
+}
+
+.imageRowMain {
+  flex: 1;
+  min-width: 0;
+}
+
+.imageRowTitle {
+  font-size: 14px;
+  font-weight: 500;
+  color: #303030;
+  margin-bottom: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.imageModeGroup {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+.imageModeLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #616161;
+  cursor: pointer;
+}
+
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 1000;
+}
+
+.modalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid #ebebeb;
+  background: #fff;
+}
+
+.modalHeaderActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.modalTitle {
+  font-size: 16px;
+  font-weight: 600;
+  color: #303030;
+}
+
+.modalClose {
+  border: none;
+  background: transparent;
+  font-size: 24px;
+  line-height: 1;
+  color: #616161;
+  cursor: pointer;
+}
+
+.modalCard {
+  width: min(960px, 100%);
+  max-height: min(85vh, 820px);
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.18);
+  overflow: hidden;
+}
+
+.modalBody {
+  flex: 1;
+  overflow: auto;
+  padding: 16px 20px;
+  background: #fafbfb;
+}
+
+.modalLoading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 220px;
+}
+
+.fileGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  gap: 16px;
+}
+
+.fileTile {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  padding: 0;
+}
+
+.fileTilePreview {
+  position: relative;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #f1f2f3;
+  margin-bottom: 8px;
+  border: 2px solid transparent;
+  transition:
+    border-color 0.12s ease,
+    background 0.12s ease;
+}
+
+.fileTileSelected .fileTilePreview {
+  border-color: #005bd3;
+  background: #eef4ff;
+}
+
+.fileTile img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+}
+
+.fileCheckbox {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: #005bd3;
+  pointer-events: none;
+}
+
+.fileName {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: #303030;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fileExtension {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: #616161;
+}
+
+.modalFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 16px 20px;
+  border-top: 1px solid #ebebeb;
+  background: #fff;
+}
+
+.modalFooterButton {
+  min-width: 72px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.modalFooterCancel {
+  border: 1px solid #c9cccf;
+  background: #fff;
+  color: #303030;
+}
+
+.modalFooterDone {
+  border: 1px solid #005bd3;
+  background: #005bd3;
+  color: #fff;
+}
+
+.modalFooterDone:disabled {
+  border-color: #c9cccf;
+  background: #f1f2f3;
+  color: #8a8a8a;
+  cursor: not-allowed;
+}
+
+.imageGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 12px;
+}
+
+.loadMoreWrap {
+  display: flex;
+  justify-content: center;
+  padding: 12px;
+  background: #fff;
+  border-top: 1px solid #ebebeb;
+}
