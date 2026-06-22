@@ -5,6 +5,12 @@ import { loader as arModelFileLoader } from "./api.ar-model.file.$name";
 import { loader as arViewLoader } from "./ar.view";
 import { loader as arViewerSettingsLoader } from "./api.ar-viewer-settings";
 
+const CORS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type",
+};
+
 async function verifyProxy(request: Request) {
   try {
     await authenticate.public.appProxy(request);
@@ -12,7 +18,7 @@ async function verifyProxy(request: Request) {
     // Allow direct /proxy access during local dev without signature
     const url = new URL(request.url);
     if (url.hostname === "localhost" || url.hostname === "127.0.0.1") return;
-    throw new Response("Unauthorized", { status: 401 });
+    throw new Response("Unauthorized", { status: 401, headers: CORS });
   }
 }
 
@@ -43,7 +49,7 @@ export async function loader({
     return arViewLoader({ request });
   }
 
-  return new Response("Not found", { status: 404 });
+  return new Response("Not found", { status: 404, headers: CORS });
 }
 
 export async function action({
@@ -60,5 +66,5 @@ export async function action({
     return arModelAction({ request });
   }
 
-  return new Response("Not found", { status: 404 });
+  return new Response("Not found", { status: 404, headers: CORS });
 }

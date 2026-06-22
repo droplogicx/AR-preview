@@ -12,13 +12,12 @@
     });
   }
 
-  var backendPreview = (root.dataset.backend || '').replace(/\/$/, '');
-  var shopPreview = root.dataset.shop || '';
-  if (!backendPreview && typeof window.Shopify !== 'undefined' && window.Shopify.shop) {
-    backendPreview = 'https://' + window.Shopify.shop + '/apps/ar-preview';
-  } else if (!backendPreview && shopPreview) {
-    backendPreview = 'https://' + shopPreview + '/apps/ar-preview';
+  function getAppProxyBase() {
+    var base = (root.dataset.backend || '').replace(/\/$/, '');
+    return base || '/apps/ar-preview';
   }
+
+  var backendPreview = getAppProxyBase();
   var productId = root.dataset.productId || '';
 
   function continueInit() {
@@ -28,19 +27,10 @@
   var IMG_THUMB = root.dataset.imgThumb || '';
   var IMG_W    = parseFloat(root.dataset.imgW   || '0');
   var IMG_H    = parseFloat(root.dataset.imgH   || '0');
-  var BACKEND  = (root.dataset.backend || '').replace(/\/$/, '');
-  var SHOP_DOMAIN = root.dataset.shop || '';
+  var BACKEND  = getAppProxyBase();
   var WIDTH_CM = parseFloat(root.dataset.width  || '60');
   var HEIGHT_CM = parseFloat(root.dataset.height || '40');
   var PAGE_URL = window.location.href;
-
-  if (!BACKEND) {
-    if (typeof window.Shopify !== 'undefined' && window.Shopify.shop) {
-      BACKEND = 'https://' + window.Shopify.shop + '/apps/ar-preview';
-    } else if (SHOP_DOMAIN) {
-      BACKEND = 'https://' + SHOP_DOMAIN + '/apps/ar-preview';
-    }
-  }
 
   if (IMG.indexOf('//') === 0) IMG = 'https:' + IMG;
   if (IMG_THUMB.indexOf('//') === 0) IMG_THUMB = 'https:' + IMG_THUMB;

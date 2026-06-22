@@ -9,7 +9,7 @@
     {% assign img_thumb = '' %}
   {% endif %}
   {% assign title  = product.title | escape %}
-  {% assign backend = 'https://' | append: shop.permanent_domain | append: '/apps/ar-preview' %}
+  {% assign backend = '/apps/ar-preview' %}
 
   <div id="ar-root"
     data-product-id="{{ product.id }}"
