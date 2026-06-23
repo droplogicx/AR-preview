@@ -52,12 +52,11 @@ model ArViewerProduct {
 }
 
 model ArViewerProductImage {
-  id           Int     @id @default(autoincrement())
-  shop         String
-  productId    String
-  imageMode    String  @default("default")
-  arImageUrl   String?
-  arImageThumb String?
+  id        Int     @id @default(autoincrement())
+  shop      String
+  productId String
+  imageMode String  @default("default")
+  imageAlt  String?
 
   @@unique([shop, productId])
   @@index([shop])

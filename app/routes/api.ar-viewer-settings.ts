@@ -1,8 +1,9 @@
 import {
-  getArViewerProductImage,
+  getArViewerProductImageSetting,
   isArViewerEnabledForProduct,
+  resolveArImageByAlt,
 } from "../ar-viewer-settings.server";
-import { authenticate } from "../shopify.server";
+import { authenticate, unauthenticated } from "../shopify.server";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -27,8 +28,8 @@ export async function loader({ request }: { request: Request }) {
   let shop = url.searchParams.get("shop") || "";
 
   try {
-    const { session } = await authenticate.public.appProxy(request);
-    shop = session.shop;
+    const auth = await authenticate.public.appProxy(request);
+    if (auth.session?.shop) shop = auth.session.shop;
   } catch {
     if (!shop) {
       const host = url.hostname;
@@ -43,13 +44,25 @@ export async function loader({ request }: { request: Request }) {
   }
 
   const enabled = await isArViewerEnabledForProduct(shop, productId);
-  const arImage = enabled
-    ? await getArViewerProductImage(shop, productId)
-    : null;
+  const imageSetting = enabled
+    ? await getArViewerProductImageSetting(shop, productId)
+    : { imageMode: "default", imageAlt: null };
+  let arImage = null;
+
+  if (imageSetting.imageMode === "specific" && imageSetting.imageAlt) {
+    try {
+      const { admin } = await unauthenticated.admin(shop);
+      arImage = await resolveArImageByAlt(admin, productId, imageSetting.imageAlt);
+    } catch {
+      arImage = null;
+    }
+  }
 
   return Response.json(
     {
       enabled,
+      imageMode: imageSetting.imageMode,
+      imageAlt: imageSetting.imageAlt,
       width: 60,
       height: 40,
       imageUrl: arImage?.url || null,

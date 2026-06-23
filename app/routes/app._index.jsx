@@ -27,9 +27,7 @@ export const loader = async ({ request }) => {
     catalog = await fetchShopProductsPage(admin, { cursor, first: 25 });
   }
 
-  const shopHandle = session.shop.replace(/\.myshopify\.com$/i, "");
-
-  return { ...settings, catalog, shopHandle };
+  return { ...settings, catalog };
 };
 
 export const action = async ({ request }) => {
@@ -53,7 +51,7 @@ export const action = async ({ request }) => {
   if (hasIncompleteSpecificImages(imageSettings)) {
     return {
       ok: false,
-      error: "Choose an image for every product set to Specific image",
+      error: "Enter image alt text for every product set to Specific image",
     };
   }
 
@@ -90,17 +88,7 @@ function toProductGid(productId) {
   return match ? `gid://shopify/Product/${match[1]}` : String(productId);
 }
 
-function normalizeSettings({ mode, products, imageSettings }) {
-  const normalizedImages = Object.entries(imageSettings || {})
-    .filter(([, setting]) => setting?.imageMode === "specific" && setting?.arImageUrl)
-    .map(([productId, setting]) => ({
-      productId: toProductGid(productId),
-      imageMode: "specific",
-      arImageUrl: setting.arImageUrl || "",
-      arImageThumb: setting.arImageThumb || setting.arImageUrl || "",
-    }))
-    .sort((a, b) => a.productId.localeCompare(b.productId));
-
+function normalizeVisibility({ mode, products }) {
   return {
     mode,
     products: [...products]
@@ -110,8 +98,18 @@ function normalizeSettings({ mode, products, imageSettings }) {
         imageUrl: p.imageUrl || "",
       }))
       .sort((a, b) => a.productId.localeCompare(b.productId)),
-    imageSettings: normalizedImages,
   };
+}
+
+function getImageSetting(imageSettings, productId) {
+  const gid = toProductGid(productId);
+  if (!imageSettings?.[gid]) {
+    const entry = Object.entries(imageSettings || {}).find(
+      ([key]) => toProductGid(key) === gid,
+    );
+    if (entry) return entry[1];
+  }
+  return imageSettings?.[gid] || defaultImageSetting();
 }
 
 function normalizeImagePrefs(imageSettings, productIds = []) {
@@ -123,52 +121,35 @@ function normalizeImagePrefs(imageSettings, productIds = []) {
   return [...ids]
     .sort((a, b) => a.localeCompare(b))
     .map((productId) => {
-      const setting = imageSettings?.[productId] || defaultImageSetting();
+      const setting = getImageSetting(imageSettings, productId);
+      const isSpecific = setting.imageMode === "specific";
       return {
         productId,
-        imageMode: setting.imageMode === "specific" ? "specific" : "default",
-        arImageUrl: setting.arImageUrl || "",
+        imageMode: isSpecific ? "specific" : "default",
+        imageAlt: isSpecific ? String(setting.imageAlt || "").trim() : "",
       };
     });
 }
 
-function settingsEqual(a, b, imageTabProductIds = []) {
-  const visibilityA = normalizeSettings({
-    mode: a.mode,
-    products: a.products,
-    imageSettings: {},
-  });
-  const visibilityB = normalizeSettings({
-    mode: b.mode,
-    products: b.products,
-    imageSettings: {},
-  });
-
-  if (JSON.stringify(visibilityA) !== JSON.stringify(visibilityB)) {
-    return false;
-  }
-
-  const prefsA = normalizeImagePrefs(a.imageSettings, imageTabProductIds);
-  const prefsB = normalizeImagePrefs(b.imageSettings, imageTabProductIds);
-  return JSON.stringify(prefsA) === JSON.stringify(prefsB);
-}
-
 function hasIncompleteSpecificImages(imageSettings) {
   return Object.values(imageSettings || {}).some(
-    (setting) => setting?.imageMode === "specific" && !setting?.arImageUrl,
+    (setting) =>
+      setting?.imageMode === "specific" && !String(setting?.imageAlt || "").trim(),
   );
 }
 
 function withImageMode(existing, imageMode) {
-  return {
-    imageMode,
-    arImageUrl: existing?.arImageUrl || "",
-    arImageThumb: existing?.arImageThumb || "",
-  };
+  if (imageMode === "specific") {
+    return {
+      imageMode: "specific",
+      imageAlt: existing?.imageAlt || "",
+    };
+  }
+  return { imageMode: "default", imageAlt: "" };
 }
 
 function defaultImageSetting() {
-  return { imageMode: "default", arImageUrl: "", arImageThumb: "" };
+  return { imageMode: "default", imageAlt: "" };
 }
 
 function DeleteIcon() {
@@ -258,17 +239,10 @@ function ImageProductRow({
   setting,
   disabled,
   onModeChange,
-  onChooseImage,
+  onAltChange,
 }) {
   const isSpecific = setting?.imageMode === "specific";
-  const hasSelectedImage = Boolean(setting?.arImageUrl);
-
-  let thumbnailUrl = "";
-  if (!isSpecific) {
-    thumbnailUrl = product.imageUrl || "";
-  } else if (hasSelectedImage) {
-    thumbnailUrl = setting.arImageThumb || setting.arImageUrl;
-  }
+  const thumbnailUrl = product.imageUrl || "";
 
   return (
     <div className={styles.imageRow}>
@@ -289,7 +263,7 @@ function ImageProductRow({
               onChange={() => onModeChange(product.productId, "default")}
               disabled={disabled}
             />
-            Default product image
+            Featured Image
           </label>
           <label className={styles.imageModeLabel}>
             <input
@@ -301,142 +275,25 @@ function ImageProductRow({
             />
             Specific image
           </label>
-          {isSpecific ? (
-            <s-button type="button" onClick={() => onChooseImage(product.productId)}>
-              {hasSelectedImage ? "Change image" : "Choose image"}
-            </s-button>
-          ) : null}
         </div>
-      </div>
-    </div>
-  );
-}
-
-function ImagePickerModal({
-  open,
-  files,
-  loading,
-  loadingMore,
-  hasMore,
-  selectedUrl,
-  shopHandle,
-  onClose,
-  onConfirm,
-  onLoadMore,
-}) {
-  const [pendingUrl, setPendingUrl] = useState(selectedUrl || "");
-  const adminFilesUrl = shopHandle
-    ? `https://admin.shopify.com/store/${shopHandle}/content/files`
-    : null;
-
-  useEffect(() => {
-    if (open) {
-      setPendingUrl(selectedUrl || "");
-    }
-  }, [open, selectedUrl]);
-
-  if (!open) return null;
-
-  const isInitialLoading = loading && files.length === 0;
-
-  return (
-    <div className={styles.modalOverlay} onClick={onClose}>
-      <div
-        className={styles.modalCard}
-        onClick={(event) => event.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Select file"
-      >
-        <div className={styles.modalHeader}>
-          <div className={styles.modalTitle}>Select file</div>
-          <div className={styles.modalHeaderActions}>
-            {adminFilesUrl ? (
-              <s-button
-                type="button"
-                onClick={() =>
-                  window.open(adminFilesUrl, "_blank", "noopener,noreferrer")
-                }
-              >
-                Upload new
-              </s-button>
-            ) : null}
-            <button type="button" className={styles.modalClose} onClick={onClose}>
-              ×
-            </button>
+        {isSpecific ? (
+          <div className={styles.imageAltField}>
+            <label className={styles.imageAltLabel} htmlFor={`image-alt-${product.productId}`}>
+              Image alt text
+            </label>
+            <input
+              id={`image-alt-${product.productId}`}
+              type="text"
+              className={styles.imageAltInput}
+              value={setting?.imageAlt || ""}
+              onChange={(event) =>
+                onAltChange(product.productId, event.target.value)
+              }
+              autoComplete="off"
+              disabled={disabled}
+            />
           </div>
-        </div>
-
-        <div className={styles.modalBody}>
-          {isInitialLoading ? (
-            <div className={styles.modalLoading}>
-              <s-spinner size="large" accessibilityLabel="Loading files" />
-            </div>
-          ) : files.length === 0 ? (
-            <s-paragraph>No image files found in your store.</s-paragraph>
-          ) : (
-            <>
-              <div className={styles.fileGrid}>
-                {files.map((file) => {
-                  const isSelected = pendingUrl === file.url;
-                  return (
-                    <button
-                      key={file.id}
-                      type="button"
-                      className={`${styles.fileTile} ${
-                        isSelected ? styles.fileTileSelected : ""
-                      }`}
-                      onClick={() => setPendingUrl(file.url)}
-                    >
-                      <div className={styles.fileTilePreview}>
-                        <input
-                          type="checkbox"
-                          className={styles.fileCheckbox}
-                          checked={isSelected}
-                          readOnly
-                          aria-hidden="true"
-                          tabIndex={-1}
-                        />
-                        <img src={file.url} alt={file.altText || file.name} />
-                      </div>
-                      <span className={styles.fileName}>{file.name}</span>
-                      <span className={styles.fileExtension}>{file.extension}</span>
-                    </button>
-                  );
-                })}
-              </div>
-              {hasMore ? (
-                <div className={styles.loadMoreWrap}>
-                  <s-button
-                    type="button"
-                    onClick={onLoadMore}
-                    loading={loadingMore}
-                  >
-                    Load more files
-                  </s-button>
-                </div>
-              ) : null}
-            </>
-          )}
-        </div>
-
-        <div className={styles.modalFooter}>
-          <button
-            type="button"
-            className={`${styles.modalFooterButton} ${styles.modalFooterCancel}`}
-            onClick={onClose}
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            className={`${styles.modalFooterButton} ${styles.modalFooterDone}`}
-            onClick={() => onConfirm(pendingUrl)}
-            disabled={!pendingUrl}
-          >
-            Done
-          </button>
-        </div>
+        ) : null}
       </div>
     </div>
   );
@@ -446,7 +303,6 @@ export default function Index() {
   const loaderData = useLoaderData();
   const fetcher = useFetcher();
   const catalogFetcher = useFetcher();
-  const imageFetcher = useFetcher();
   const shopify = useAppBridge();
 
   const [activeTab, setActiveTab] = useState("visibility");
@@ -467,9 +323,6 @@ export default function Index() {
   const [catalogPageInfo, setCatalogPageInfo] = useState(
     loaderData.catalog?.pageInfo || { hasNextPage: false, endCursor: null },
   );
-  const [modalProductId, setModalProductId] = useState(null);
-  const [storeFiles, setStoreFiles] = useState([]);
-  const [storeFilesPageInfo, setStoreFilesPageInfo] = useState(null);
 
   const isSaving =
     fetcher.state === "submitting" || fetcher.state === "loading";
@@ -488,22 +341,26 @@ export default function Index() {
     [imageTabProducts],
   );
 
-  const isDirty = !settingsEqual(
-    { mode, products, imageSettings },
-    savedSettings,
-    imageTabProductIds,
-  );
-  const canSave = isDirty && !incompleteSpecificImages && !isSaving;
-
-  useEffect(() => {
-    if (!imageFetcher.data?.images) return;
-    setStoreFiles((current) =>
-      imageFetcher.data.append
-        ? [...current, ...imageFetcher.data.images]
-        : imageFetcher.data.images,
+  const isImageSettingsDirty = useMemo(() => {
+    const current = normalizeImagePrefs(imageSettings, imageTabProductIds);
+    const saved = normalizeImagePrefs(
+      savedSettings.imageSettings,
+      imageTabProductIds,
     );
-    setStoreFilesPageInfo(imageFetcher.data.pageInfo || null);
-  }, [imageFetcher.data]);
+    return JSON.stringify(current) !== JSON.stringify(saved);
+  }, [imageSettings, savedSettings.imageSettings, imageTabProductIds]);
+
+  const isVisibilityDirty = useMemo(() => {
+    const current = normalizeVisibility({ mode, products });
+    const saved = normalizeVisibility({
+      mode: savedSettings.mode,
+      products: savedSettings.products,
+    });
+    return JSON.stringify(current) !== JSON.stringify(saved);
+  }, [mode, products, savedSettings.mode, savedSettings.products]);
+
+  const isDirty = isVisibilityDirty || isImageSettingsDirty;
+  const canSave = isDirty && !incompleteSpecificImages && !isSaving;
 
   useEffect(() => {
     if (fetcher.data?.ok) {
@@ -590,38 +447,21 @@ export default function Index() {
     setImageSettings((current) => ({
       ...current,
       [gid]: withImageMode(
-        current[gid],
+        getImageSetting(current, productId),
         imageMode === "specific" ? "specific" : "default",
       ),
     }));
   };
 
-  const openImagePicker = (productId) => {
+  const setProductImageAlt = (productId, imageAlt) => {
     const gid = toProductGid(productId);
-    setModalProductId(gid);
-    setStoreFiles([]);
-    setStoreFilesPageInfo(null);
-    imageFetcher.load("/app/store-files");
-  };
-
-  const loadMoreStoreFiles = () => {
-    if (!storeFilesPageInfo?.endCursor) return;
-    imageFetcher.load(
-      `/app/store-files?cursor=${encodeURIComponent(storeFilesPageInfo.endCursor)}`,
-    );
-  };
-
-  const selectModalImage = (url) => {
-    if (!modalProductId || !url) return;
     setImageSettings((current) => ({
       ...current,
-      [modalProductId]: {
+      [gid]: {
         imageMode: "specific",
-        arImageUrl: url,
-        arImageThumb: url,
+        imageAlt,
       },
     }));
-    setModalProductId(null);
   };
 
   const loadMoreProducts = () => {
@@ -750,13 +590,11 @@ export default function Index() {
         </div>
       ) : (
         <s-section
-          heading={
-            mode === "all" ? "All products" : "Selected products"
-          }
+          heading={mode === "all" ? "All products" : "Selected products"}
         >
           <s-paragraph>
-            Choose whether each product uses its default featured image in AR or
-            a specific image from the product gallery.
+            Choose whether each product uses its featured image in AR or a
+            specific gallery image matched by alt text.
           </s-paragraph>
 
           {mode === "specific" && products.length === 0 ? (
@@ -774,10 +612,10 @@ export default function Index() {
                   <ImageProductRow
                     key={gid}
                     product={product}
-                    setting={imageSettings[gid] || defaultImageSetting()}
+                    setting={getImageSetting(imageSettings, gid)}
                     disabled={isSaving}
                     onModeChange={setProductImageMode}
-                    onChooseImage={openImagePicker}
+                    onAltChange={setProductImageAlt}
                   />
                 );
               })}
@@ -796,19 +634,6 @@ export default function Index() {
           )}
         </s-section>
       )}
-
-      <ImagePickerModal
-        open={Boolean(modalProductId)}
-        files={storeFiles}
-        loading={imageFetcher.state !== "idle"}
-        loadingMore={imageFetcher.state !== "idle" && storeFiles.length > 0}
-        hasMore={storeFilesPageInfo?.hasNextPage}
-        selectedUrl={imageSettings[modalProductId]?.arImageUrl || ""}
-        shopHandle={loaderData.shopHandle}
-        onClose={() => setModalProductId(null)}
-        onConfirm={selectModalImage}
-        onLoadMore={loadMoreStoreFiles}
-      />
 
       <s-section slot="aside" heading="Theme setup">
         <s-paragraph>

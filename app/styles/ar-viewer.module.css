@@ -177,6 +177,42 @@
   color: #005bd3;
 }
 
+.imageAltField {
+  max-width: 360px;
+  margin-top: 10px;
+}
+
+.imageAltLabel {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: #303030;
+  margin-bottom: 6px;
+}
+
+.imageAltInput {
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 14px;
+  line-height: 20px;
+  color: #303030;
+  background: #fff;
+  border: 1px solid #c9cccf;
+  border-radius: 8px;
+  outline: none;
+}
+
+.imageAltInput:focus {
+  border-color: #005bd3;
+  box-shadow: 0 0 0 1px #005bd3;
+}
+
+.imageAltInput:disabled {
+  background: #f6f6f7;
+  color: #8a8a8a;
+  cursor: not-allowed;
+}
+
 .imageRow {
   display: flex;
   align-items: flex-start;

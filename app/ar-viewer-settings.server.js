@@ -32,64 +32,32 @@ const PRODUCTS_BY_IDS_QUERY = `#graphql
   }
 `;
 
-const STORE_FILES_QUERY = `#graphql
-  query StoreFiles($first: Int!, $after: String) {
-    files(first: $first, after: $after, query: "media_type:IMAGE", sortKey: CREATED_AT, reverse: true) {
-      nodes {
-        ... on MediaImage {
-          id
-          alt
-          image {
-            url
-            width
-            height
-          }
-        }
-        ... on GenericFile {
-          id
+const PRODUCT_IMAGES_QUERY = `#graphql
+  query ProductImages($id: ID!) {
+    product(id: $id) {
+      images(first: 50) {
+        nodes {
+          altText
           url
-          mimeType
+          width
+          height
         }
       }
-      pageInfo {
-        hasNextPage
-        endCursor
+      media(first: 50) {
+        nodes {
+          alt
+          ... on MediaImage {
+            image {
+              url
+              width
+              height
+            }
+          }
+        }
       }
     }
   }
 `;
-
-function fileNameFromUrl(url) {
-  try {
-    const pathname = new URL(url).pathname;
-    const base = decodeURIComponent(pathname.split("/").pop() || "image");
-    const dot = base.lastIndexOf(".");
-    if (dot === -1) {
-      return { name: base, extension: "JPG" };
-    }
-    return {
-      name: base.slice(0, dot),
-      extension: base.slice(dot + 1).toUpperCase(),
-    };
-  } catch {
-    return { name: "image", extension: "JPG" };
-  }
-}
-
-function addImageFile(files, seen, image) {
-  if (!image?.url || seen.has(image.url)) return;
-  seen.add(image.url);
-  const { name, extension } = fileNameFromUrl(image.url);
-  files.push({
-    id: image.id || image.url,
-    url: image.url,
-    name,
-    extension,
-    altText: image.altText || image.alt || "",
-    width: image.width || 0,
-    height: image.height || 0,
-  });
-}
 
 export function normalizeProductId(id) {
   if (!id) return "";
@@ -104,13 +72,25 @@ export function toProductGid(productId) {
   return `gid://shopify/Product/${normalized}`;
 }
 
+function thumbFromUrl(url) {
+  if (!url) return "";
+  try {
+    const parsed = new URL(url);
+    parsed.searchParams.set("width", "160");
+    parsed.searchParams.set("height", "120");
+    parsed.searchParams.set("crop", "center");
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
+
 function mapImageSettings(rows) {
   const imageSettings = {};
   for (const row of rows) {
     imageSettings[row.productId] = {
       imageMode: row.imageMode || "default",
-      arImageUrl: row.arImageUrl || "",
-      arImageThumb: row.arImageThumb || "",
+      imageAlt: row.imageAlt || "",
     };
   }
   return imageSettings;
@@ -121,20 +101,33 @@ export async function getArViewerImageSettings(shop) {
   return mapImageSettings(rows);
 }
 
-export async function getArViewerProductImage(shop, productId) {
+export async function getArViewerProductImageSetting(shop, productId) {
   const gid = toProductGid(productId);
-  const row = await prisma.arViewerProductImage.findUnique({
+  let row = await prisma.arViewerProductImage.findUnique({
     where: { shop_productId: { shop, productId: gid } },
   });
 
-  if (!row || row.imageMode !== "specific" || !row.arImageUrl) {
-    return null;
+  if (!row) {
+    const normalizedId = normalizeProductId(productId);
+    const rows = await prisma.arViewerProductImage.findMany({ where: { shop } });
+    row = rows.find(
+      (entry) => normalizeProductId(entry.productId) === normalizedId,
+    );
+  }
+
+  if (!row || row.imageMode !== "specific" || !row.imageAlt?.trim()) {
+    return { imageMode: "default", imageAlt: null };
   }
 
   return {
-    url: row.arImageUrl,
-    thumb: row.arImageThumb || row.arImageUrl,
+    imageMode: "specific",
+    imageAlt: row.imageAlt.trim(),
   };
+}
+
+export async function getArViewerProductImageAlt(shop, productId) {
+  const setting = await getArViewerProductImageSetting(shop, productId);
+  return setting.imageAlt;
 }
 
 export async function getArViewerSettings(shop) {
@@ -170,6 +163,50 @@ export async function isArViewerEnabledForProduct(shop, productId) {
   return products.some(
     (p) => normalizeProductId(p.productId) === normalizedId,
   );
+}
+
+export async function resolveArImageByAlt(admin, productId, imageAlt) {
+  const alt = String(imageAlt || "").trim();
+  if (!alt || !admin) return null;
+
+  const response = await admin.graphql(PRODUCT_IMAGES_QUERY, {
+    variables: { id: toProductGid(productId) },
+  });
+  const json = await response.json();
+  const product = json.data?.product;
+  const candidates = [];
+
+  for (const image of product?.images?.nodes || []) {
+    if (!image?.url) continue;
+    candidates.push({
+      altText: image.altText || "",
+      url: image.url,
+      width: image.width || 0,
+      height: image.height || 0,
+    });
+  }
+
+  for (const node of product?.media?.nodes || []) {
+    if (!node?.image?.url) continue;
+    candidates.push({
+      altText: node.alt || "",
+      url: node.image.url,
+      width: node.image.width || 0,
+      height: node.image.height || 0,
+    });
+  }
+
+  const normalizedAlt = alt.toLowerCase();
+  const match = candidates.find(
+    (image) => String(image.altText || "").trim().toLowerCase() === normalizedAlt,
+  );
+
+  if (!match?.url) return null;
+
+  return {
+    url: match.url,
+    thumb: thumbFromUrl(match.url),
+  };
 }
 
 export async function fetchShopProductsPage(admin, { cursor = null, first = 25 } = {}) {
@@ -212,47 +249,6 @@ export async function fetchProductsByIds(admin, productIds) {
     }));
 }
 
-export async function fetchStoreImageFiles(admin, { cursor = null, first = 30 } = {}) {
-  const response = await admin.graphql(STORE_FILES_QUERY, {
-    variables: { first, after: cursor },
-  });
-  const json = await response.json();
-  const data = json.data?.files;
-
-  if (!data) {
-    throw new Error("Could not load store files");
-  }
-
-  const files = [];
-  const seen = new Set();
-
-  for (const node of data.nodes || []) {
-    if (node?.image?.url) {
-      addImageFile(files, seen, {
-        id: node.id,
-        url: node.image.url,
-        alt: node.alt,
-        width: node.image.width,
-        height: node.image.height,
-      });
-      continue;
-    }
-
-    if (node?.url && String(node.mimeType || "").startsWith("image/")) {
-      addImageFile(files, seen, {
-        id: node.id,
-        url: node.url,
-        altText: "",
-      });
-    }
-  }
-
-  return {
-    images: files,
-    pageInfo: data.pageInfo,
-  };
-}
-
 export async function saveArViewerSettings(shop, { mode, products, imageSettings }) {
   const normalizedMode = mode === "specific" ? "specific" : "all";
   const normalizedProducts =
@@ -265,17 +261,12 @@ export async function saveArViewerSettings(shop, { mode, products, imageSettings
       shop,
       productId: toProductGid(productId),
       imageMode: setting?.imageMode === "specific" ? "specific" : "default",
-      arImageUrl:
-        setting?.imageMode === "specific" ? setting?.arImageUrl || null : null,
-      arImageThumb:
+      imageAlt:
         setting?.imageMode === "specific"
-          ? setting?.arImageThumb || setting?.arImageUrl || null
+          ? String(setting?.imageAlt || "").trim() || null
           : null,
     }))
-    .filter(
-      (row) =>
-        row.imageMode === "specific" && row.arImageUrl,
-    );
+    .filter((row) => row.imageMode === "specific" && row.imageAlt);
 
   await prisma.$transaction([
     prisma.arViewerSettings.upsert({
