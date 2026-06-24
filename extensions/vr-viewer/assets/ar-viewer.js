@@ -226,11 +226,18 @@
       { label: 'B0', w: 100, h: 141, value: 'B0: 100x141 cm' }
     ];
 
+    var FRAME_SWATCH_IMAGES = {
+      'none': root.dataset.swatchUnframed || '',
+      'natural-timber': root.dataset.swatchNatural || '',
+      'white': root.dataset.swatchWhite || '',
+      'black': root.dataset.swatchBlack || ''
+    };
+
     var FRAME_COLORS_FALLBACK = [
-      { id: 'none', color: 'transparent', label: 'None', value: 'None' },
-      { id: 'natural-timber', color: '#c4a574', label: 'Natural Timber', value: 'Natural Timber' },
-      { id: 'white', color: '#f5f5f0', label: 'White Frame', value: 'White Frame' },
-      { id: 'black', color: '#1a1a1a', label: 'Black Frame', value: 'Black Frame' }
+      { id: 'none', color: 'transparent', label: 'None', value: 'None', image: FRAME_SWATCH_IMAGES['none'] },
+      { id: 'natural-timber', color: '#c4a574', label: 'Natural Timber', value: 'Natural Timber', image: FRAME_SWATCH_IMAGES['natural-timber'] },
+      { id: 'white', color: '#f5f5f0', label: 'White Frame', value: 'White Frame', image: FRAME_SWATCH_IMAGES.white },
+      { id: 'black', color: '#1a1a1a', label: 'Black Frame', value: 'Black Frame', image: FRAME_SWATCH_IMAGES.black }
     ];
 
     var BORDER_OPTIONS_FALLBACK = [
@@ -348,8 +355,18 @@
       return PRODUCT_SIZES || SIZE_PRESETS_FALLBACK;
     }
 
+    function withFrameSwatchImages(frames) {
+      return frames.map(function (f) {
+        var copy = Object.assign({}, f);
+        if (!copy.image && FRAME_SWATCH_IMAGES[copy.id]) {
+          copy.image = FRAME_SWATCH_IMAGES[copy.id];
+        }
+        return copy;
+      });
+    }
+
     function getFrameOptions() {
-      return PRODUCT_FRAMES || FRAME_COLORS_FALLBACK;
+      return withFrameSwatchImages(PRODUCT_FRAMES || FRAME_COLORS_FALLBACK);
     }
 
     function getBorderOptions() {
@@ -516,6 +533,9 @@
           var img = label.querySelector('img');
           if (img && img.src) copy.image = img.src;
         }
+        if (!copy.image && FRAME_SWATCH_IMAGES[copy.id]) {
+          copy.image = FRAME_SWATCH_IMAGES[copy.id];
+        }
         return copy;
       });
     }
@@ -554,7 +574,8 @@
                 id === 'white' ? '#f5f5f0' : id === 'black' ? '#1a1a1a' : id === 'none' ? 'transparent' : '#c4a574'
               ),
               label: val,
-              value: val
+              value: val,
+              image: FRAME_SWATCH_IMAGES[id] || ''
             };
           });
           PRODUCT_FRAMES = enrichFramesFromDom(PRODUCT_FRAMES);
@@ -903,8 +924,15 @@
       applyVariantImage(variant);
     }
 
-    function syncFromProductPage() {
+    function syncFromProductPage(force) {
       buildProductVariantOptions();
+      var sig = pickerSig();
+      if (!force && state.customizedInModal && sig === state.lastSyncedPickerSig) {
+        refreshArImageFromSettings();
+        return;
+      }
+      state.lastSyncedPickerSig = sig;
+
       var variant = resolveCurrentVariant();
       if (variant) applyVariantToState(variant);
       var picker = readPicker();
@@ -928,6 +956,7 @@
       if (panel) {
         panel.innerHTML = buildCustomizePanelHtml();
         bindCustomizePanelEvents();
+        applyFrameSwatchImages(panel);
       }
       var sizeEl = document.getElementById('ar-size');
       if (sizeEl) sizeEl.value = String(state.sizeIndex);
@@ -938,12 +967,10 @@
     function refreshCustomizePanel() {
       var panel = document.getElementById('ar-customize-panel');
       if (!panel) return;
-      syncFromProductPage();
       panel.innerHTML = buildCustomizePanelHtml();
       bindCustomizePanelEvents();
-      var img = document.getElementById('ar-product-img');
-      if (img && IMG) img.src = IMG;
-      syncPanelUI();
+      applyFrameSwatchImages(panel);
+      refreshCustomizePanelUI();
       renderViewport();
     }
 
@@ -1046,8 +1073,14 @@
       activePanel: null,
       fullWidth: false,
       paintId: DEFAULT_PAINT_ID,
-      customPaintColor: null
+      customPaintColor: null,
+      customizedInModal: false,
+      lastSyncedPickerSig: ''
     };
+
+    function markModalCustomized() {
+      state.customizedInModal = true;
+    }
 
     function imgUrl(base, extra) {
       return base + (base.indexOf('?') >= 0 ? '&' : '?') + extra;
@@ -1518,6 +1551,18 @@
       }
     }
 
+    function applyFrameSwatchImages(scope) {
+      var root = scope || document.getElementById('ar-customize-panel') || roomEl;
+      if (!root) return;
+      root.querySelectorAll('.ar-swatch[data-swatch-bg]').forEach(function (btn) {
+        var url = btn.getAttribute('data-swatch-bg');
+        if (!url) return;
+        btn.style.backgroundImage = 'url("' + url.replace(/"/g, '\\"') + '")';
+        btn.style.backgroundSize = 'cover';
+        btn.style.backgroundPosition = 'center';
+      });
+    }
+
     function buildCustomizePanelHtml() {
       var sizeLabel = (VARIANT_META.size && VARIANT_META.size.name) || 'Size';
       var frameLabelText = (VARIANT_META.frame && VARIANT_META.frame.name) || 'Frame';
@@ -1533,17 +1578,19 @@
         var isActive = state.frameValue
           ? state.frameValue === f.value
           : state.frameId === f.id;
-        var extraCls = f.id === 'none' ? ' ar-swatch-none' : '';
+        var extraCls = f.id === 'none' && !f.image ? ' ar-swatch-none' : '';
         var imgCls = f.image ? ' ar-swatch-img' : '';
         var style = '';
+        var dataBg = '';
         if (f.image) {
-          style = 'background-image:url(' + JSON.stringify(f.image) + ');background-size:cover;background-position:center;';
+          dataBg = ' data-swatch-bg="' + escapeHtml(f.image) + '"';
         } else if (f.id !== 'none' && f.color) {
           style = 'background:' + f.color;
         }
         return '<button type="button" class="ar-swatch' + extraCls + imgCls + (isActive ? ' ar-active' : '') + '"' +
           ' data-frame="' + f.id + '" data-frame-value="' + escapeHtml(f.value || f.label) + '"' +
           ' title="' + escapeHtml(f.label) + '"' +
+          dataBg +
           (style ? ' style="' + style + '"' : '') + '></button>';
       }).join('');
 
@@ -2074,7 +2121,7 @@
       var opening = state.activePanel !== name;
       state.activePanel = opening ? name : null;
       if (opening && name === 'customize') refreshCustomizePanel();
-      else syncPanelUI();
+      syncPanelUI();
     }
 
     function closePopovers() {
@@ -2931,6 +2978,7 @@
     function bindCustomizePanelEvents() {
       var sizeEl = document.getElementById('ar-size');
       if (sizeEl) sizeEl.addEventListener('change', function (e) {
+        markModalCustomized();
         state.sizeIndex = parseInt(e.target.value, 10);
         state.sizeScale = presetScale(getSizePresets()[state.sizeIndex]);
         syncSpaceWidthFields(false);
@@ -2940,6 +2988,7 @@
 
       roomEl.querySelectorAll('#ar-customize-panel .ar-swatch').forEach(function (btn) {
         btn.addEventListener('click', function () {
+          markModalCustomized();
           state.frameId = btn.dataset.frame;
           state.frameValue = btn.dataset.frameValue || '';
           if (state.frameId === 'none') state.matting = 'none';
@@ -2955,6 +3004,7 @@
       roomEl.querySelectorAll('#ar-customize-panel .ar-mat-btn').forEach(function (btn) {
         btn.addEventListener('click', function () {
           if (state.frameId === 'none') return;
+          markModalCustomized();
           state.matting = btn.dataset.mat;
           state.borderValue = btn.dataset.borderValue || '';
           roomEl.querySelectorAll('#ar-customize-panel .ar-mat-btn').forEach(function (b) {
@@ -2964,6 +3014,8 @@
           renderViewport();
         });
       });
+
+      applyFrameSwatchImages(document.getElementById('ar-customize-panel'));
     }
 
     function bindRoomEvents() {
@@ -3219,13 +3271,15 @@
       state.roomIndex = 0;
       state.paintId = DEFAULT_PAINT_ID;
       state.customPaintColor = null;
+      state.customizedInModal = false;
+      state.lastSyncedPickerSig = '';
       state.posX = 50;
       state.posY = 50;
       state.wallTint = null;
       openGeneration++;
       var gen = openGeneration;
 
-      syncFromProductPage();
+      syncFromProductPage(true);
       showSplash();
       buildRoomUI();
       roomEl.classList.remove('ar-room-fullwidth');

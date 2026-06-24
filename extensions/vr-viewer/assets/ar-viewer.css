@@ -99,8 +99,8 @@
 }
 .ar-fab-icon,
 .ar-action-icon {
-  width: 22px;
-  height: 22px;
+  width: 22px !important;
+  height: 22px !important;
   flex-shrink: 0;
   object-fit: contain;
   display: block;
@@ -1053,13 +1053,15 @@
   box-shadow: 0 1px 4px rgba(0,0,0,.2);
 }
 
-.ar-swatches { display: flex; flex-wrap: wrap; gap: 6px; }
+.ar-swatches { display: flex; flex-wrap: nowrap; gap: 8px; }
+.ar-field-frame .ar-swatches { margin-top: 4px; }
 .ar-swatch {
   width: 24px; height: 24px;
   border-radius: 50%;
   border: 2px solid transparent;
   cursor: pointer; padding: 0;
   position: relative;
+  flex-shrink: 0;
 }
 .ar-swatch.ar-swatch-none {
   background: #fff;
@@ -1076,11 +1078,16 @@
 }
 .ar-swatch.ar-active { border-color: #111; box-shadow: 0 0 0 2px #fff, 0 0 0 3px #111; }
 .ar-swatch.ar-swatch-img {
-  width: 52px;
-  height: 52px;
-  border-radius: 4px;
+  width: 56px;
+  height: 56px;
+  border-radius: 6px;
   background-color: #f5f5f5;
   background-repeat: no-repeat;
+  border: 2px solid #e3e3e3;
+}
+.ar-swatch.ar-swatch-img.ar-active {
+  border-color: #111;
+  box-shadow: 0 0 0 2px #fff, 0 0 0 3px #111;
 }
 .ar-field-label-upper {
   font-size: 11px;
