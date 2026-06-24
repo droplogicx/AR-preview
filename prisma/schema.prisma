@@ -36,6 +36,8 @@ model Session {
 model ArViewerSettings {
   shop      String   @id
   mode      String   @default("all")
+  imageMode String   @default("default")
+  imageAlt  String?
   updatedAt DateTime @updatedAt
 }
 
@@ -46,17 +48,6 @@ model ArViewerProduct {
   productTitle    String?
   productImageUrl String?
   createdAt       DateTime @default(now())
-
-  @@unique([shop, productId])
-  @@index([shop])
-}
-
-model ArViewerProductImage {
-  id        Int     @id @default(autoincrement())
-  shop      String
-  productId String
-  imageMode String  @default("default")
-  imageAlt  String?
 
   @@unique([shop, productId])
   @@index([shop])

@@ -856,20 +856,20 @@
         return false;
       }
 
-      var matched = null;
-      var url = arImageSettings.imageUrl || '';
-      var thumb = arImageSettings.imageThumb || '';
+      var matched = findProductImageByAlt(arImageSettings.imageAlt);
+      var url = '';
+      var thumb = '';
       var width = 0;
       var height = 0;
 
-      if (!url) {
-        matched = findProductImageByAlt(arImageSettings.imageAlt);
-        if (matched) {
-          url = matched.src || '';
-          thumb = matched.thumb || matched.src || '';
-          width = matched.width || 0;
-          height = matched.height || 0;
-        }
+      if (matched) {
+        url = matched.src || '';
+        thumb = matched.thumb || matched.src || '';
+        width = matched.width || 0;
+        height = matched.height || 0;
+      } else if (arImageSettings.imageUrl) {
+        url = arImageSettings.imageUrl;
+        thumb = arImageSettings.imageThumb || arImageSettings.imageUrl;
       }
 
       url = toSecureUrl(url);

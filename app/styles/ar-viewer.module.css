@@ -182,6 +182,22 @@
   margin-top: 10px;
 }
 
+.imageAltCard {
+  margin-top: 12px;
+  padding: 16px;
+  border: 1px solid #e3e3e3;
+  border-radius: 12px;
+  background: #fafafa;
+  max-width: 480px;
+}
+
+.imageAltHint {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: #616161;
+  line-height: 1.45;
+}
+
 .imageAltLabel {
   display: block;
   font-size: 13px;

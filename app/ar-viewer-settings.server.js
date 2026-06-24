@@ -85,49 +85,33 @@ function thumbFromUrl(url) {
   }
 }
 
-function mapImageSettings(rows) {
-  const imageSettings = {};
-  for (const row of rows) {
-    imageSettings[row.productId] = {
-      imageMode: row.imageMode || "default",
-      imageAlt: row.imageAlt || "",
-    };
-  }
-  return imageSettings;
+function mapImageSettings(settings) {
+  const imageMode = settings?.imageMode === "specific" ? "specific" : "default";
+  const imageAlt =
+    imageMode === "specific" ? String(settings?.imageAlt || "").trim() : "";
+  return { imageMode, imageAlt };
 }
 
+export async function getArViewerImageSetting(shop) {
+  const settings = await prisma.arViewerSettings.findUnique({ where: { shop } });
+  return mapImageSettings(settings);
+}
+
+/** @deprecated Use getArViewerImageSetting */
+export async function getArViewerProductImageSetting(shop) {
+  return getArViewerImageSetting(shop);
+}
+
+/** @deprecated Use getArViewerImageSetting */
 export async function getArViewerImageSettings(shop) {
-  const rows = await prisma.arViewerProductImage.findMany({ where: { shop } });
-  return mapImageSettings(rows);
+  const setting = await getArViewerImageSetting(shop);
+  return { __shop__: setting };
 }
 
-export async function getArViewerProductImageSetting(shop, productId) {
-  const gid = toProductGid(productId);
-  let row = await prisma.arViewerProductImage.findUnique({
-    where: { shop_productId: { shop, productId: gid } },
-  });
-
-  if (!row) {
-    const normalizedId = normalizeProductId(productId);
-    const rows = await prisma.arViewerProductImage.findMany({ where: { shop } });
-    row = rows.find(
-      (entry) => normalizeProductId(entry.productId) === normalizedId,
-    );
-  }
-
-  if (!row || row.imageMode !== "specific" || !row.imageAlt?.trim()) {
-    return { imageMode: "default", imageAlt: null };
-  }
-
-  return {
-    imageMode: "specific",
-    imageAlt: row.imageAlt.trim(),
-  };
-}
-
-export async function getArViewerProductImageAlt(shop, productId) {
-  const setting = await getArViewerProductImageSetting(shop, productId);
-  return setting.imageAlt;
+/** @deprecated Use getArViewerImageSetting */
+export async function getArViewerProductImageAlt(shop) {
+  const setting = await getArViewerImageSetting(shop);
+  return setting.imageAlt || null;
 }
 
 export async function getArViewerSettings(shop) {
@@ -136,16 +120,17 @@ export async function getArViewerSettings(shop) {
     where: { shop },
     orderBy: { productTitle: "asc" },
   });
-  const imageSettings = await getArViewerImageSettings(shop);
+  const imagePrefs = mapImageSettings(settings);
 
   return {
     mode: settings?.mode ?? "all",
+    imageMode: imagePrefs.imageMode,
+    imageAlt: imagePrefs.imageAlt,
     products: products.map((p) => ({
       productId: p.productId,
       title: p.productTitle || p.productId,
       imageUrl: p.productImageUrl || "",
     })),
-    imageSettings,
   };
 }
 
@@ -249,30 +234,33 @@ export async function fetchProductsByIds(admin, productIds) {
     }));
 }
 
-export async function saveArViewerSettings(shop, { mode, products, imageSettings }) {
+export async function saveArViewerSettings(shop, { mode, products, imageMode, imageAlt }) {
   const normalizedMode = mode === "specific" ? "specific" : "all";
   const normalizedProducts =
     normalizedMode === "specific"
       ? products.filter((p) => p.productId)
       : [];
 
-  const normalizedImageSettings = Object.entries(imageSettings || {})
-    .map(([productId, setting]) => ({
-      shop,
-      productId: toProductGid(productId),
-      imageMode: setting?.imageMode === "specific" ? "specific" : "default",
-      imageAlt:
-        setting?.imageMode === "specific"
-          ? String(setting?.imageAlt || "").trim() || null
-          : null,
-    }))
-    .filter((row) => row.imageMode === "specific" && row.imageAlt);
+  const normalizedImageMode = imageMode === "specific" ? "specific" : "default";
+  const normalizedImageAlt =
+    normalizedImageMode === "specific"
+      ? String(imageAlt || "").trim() || null
+      : null;
 
   await prisma.$transaction([
     prisma.arViewerSettings.upsert({
       where: { shop },
-      create: { shop, mode: normalizedMode },
-      update: { mode: normalizedMode },
+      create: {
+        shop,
+        mode: normalizedMode,
+        imageMode: normalizedImageMode,
+        imageAlt: normalizedImageAlt,
+      },
+      update: {
+        mode: normalizedMode,
+        imageMode: normalizedImageMode,
+        imageAlt: normalizedImageAlt,
+      },
     }),
     prisma.arViewerProduct.deleteMany({ where: { shop } }),
     ...(normalizedProducts.length
@@ -284,14 +272,6 @@ export async function saveArViewerSettings(shop, { mode, products, imageSettings
               productTitle: p.title || null,
               productImageUrl: p.imageUrl || null,
             })),
-          }),
-        ]
-      : []),
-    prisma.arViewerProductImage.deleteMany({ where: { shop } }),
-    ...(normalizedImageSettings.length
-      ? [
-          prisma.arViewerProductImage.createMany({
-            data: normalizedImageSettings,
           }),
         ]
       : []),

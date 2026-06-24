@@ -3,7 +3,6 @@ import { useFetcher, useLoaderData } from "react-router";
 import { SaveBar, useAppBridge } from "@shopify/app-bridge-react";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import {
-  fetchShopProductsPage,
   getArViewerSettings,
   saveArViewerSettings,
 } from "../ar-viewer-settings.server";
@@ -13,33 +12,20 @@ import styles from "../styles/ar-viewer.module.css";
 const SAVE_BAR_ID = "ar-viewer-save-bar";
 
 export const loader = async ({ request }) => {
-  const { admin, session } = await authenticate.admin(request);
-  const url = new URL(request.url);
-  const cursor = url.searchParams.get("cursor");
-  const settings = await getArViewerSettings(session.shop);
-
-  let catalog = {
-    products: [],
-    pageInfo: { hasNextPage: false, endCursor: null },
-  };
-
-  if (settings.mode === "all") {
-    catalog = await fetchShopProductsPage(admin, { cursor, first: 25 });
-  }
-
-  return { ...settings, catalog };
+  const { session } = await authenticate.admin(request);
+  return getArViewerSettings(session.shop);
 };
 
 export const action = async ({ request }) => {
   const { session } = await authenticate.admin(request);
   const formData = await request.formData();
   const mode = formData.get("mode");
+  const imageMode = formData.get("imageMode");
+  const imageAlt = formData.get("imageAlt") || "";
   let products = [];
-  let imageSettings = {};
 
   try {
     products = JSON.parse(formData.get("products") || "[]");
-    imageSettings = JSON.parse(formData.get("imageSettings") || "{}");
   } catch {
     return { ok: false, error: "Invalid settings payload" };
   }
@@ -48,10 +34,10 @@ export const action = async ({ request }) => {
     return { ok: false, error: "Select at least one product" };
   }
 
-  if (hasIncompleteSpecificImages(imageSettings)) {
+  if (imageMode === "specific" && !String(imageAlt).trim()) {
     return {
       ok: false,
-      error: "Enter image alt text for every product set to Specific image",
+      error: "Enter image alt text when using Alt text image",
     };
   }
 
@@ -59,7 +45,8 @@ export const action = async ({ request }) => {
     const settings = await saveArViewerSettings(session.shop, {
       mode,
       products,
-      imageSettings,
+      imageMode,
+      imageAlt,
     });
     return { ok: true, ...settings };
   } catch (error) {
@@ -101,55 +88,12 @@ function normalizeVisibility({ mode, products }) {
   };
 }
 
-function getImageSetting(imageSettings, productId) {
-  const gid = toProductGid(productId);
-  if (!imageSettings?.[gid]) {
-    const entry = Object.entries(imageSettings || {}).find(
-      ([key]) => toProductGid(key) === gid,
-    );
-    if (entry) return entry[1];
-  }
-  return imageSettings?.[gid] || defaultImageSetting();
-}
-
-function normalizeImagePrefs(imageSettings, productIds = []) {
-  const ids = new Set([
-    ...productIds.map((id) => toProductGid(id)),
-    ...Object.keys(imageSettings || {}).map((id) => toProductGid(id)),
-  ]);
-
-  return [...ids]
-    .sort((a, b) => a.localeCompare(b))
-    .map((productId) => {
-      const setting = getImageSetting(imageSettings, productId);
-      const isSpecific = setting.imageMode === "specific";
-      return {
-        productId,
-        imageMode: isSpecific ? "specific" : "default",
-        imageAlt: isSpecific ? String(setting.imageAlt || "").trim() : "",
-      };
-    });
-}
-
-function hasIncompleteSpecificImages(imageSettings) {
-  return Object.values(imageSettings || {}).some(
-    (setting) =>
-      setting?.imageMode === "specific" && !String(setting?.imageAlt || "").trim(),
-  );
-}
-
-function withImageMode(existing, imageMode) {
-  if (imageMode === "specific") {
-    return {
-      imageMode: "specific",
-      imageAlt: existing?.imageAlt || "",
-    };
-  }
-  return { imageMode: "default", imageAlt: "" };
-}
-
-function defaultImageSetting() {
-  return { imageMode: "default", imageAlt: "" };
+function normalizeImagePrefs(imageMode, imageAlt) {
+  const isAlt = imageMode === "specific";
+  return {
+    imageMode: isAlt ? "specific" : "default",
+    imageAlt: isAlt ? String(imageAlt || "").trim() : "",
+  };
 }
 
 function DeleteIcon() {
@@ -199,156 +143,37 @@ function ProductRow({ product, onRemove, disabled }) {
   );
 }
 
-function EmptyImagePlaceholder() {
-  return (
-    <div
-      className={`${styles.productImage} ${styles.imageEmptyPlaceholder}`}
-      aria-hidden="true"
-    >
-      <svg
-        width="20"
-        height="20"
-        viewBox="0 0 20 20"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        <rect
-          x="3"
-          y="4"
-          width="14"
-          height="12"
-          rx="2"
-          stroke="currentColor"
-          strokeWidth="1.5"
-        />
-        <path
-          d="M3 13L7.5 9.5L10.5 12L13.5 9L17 12.5"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-        <circle cx="7" cy="8" r="1.25" fill="currentColor" />
-      </svg>
-    </div>
-  );
-}
-
-function ImageProductRow({
-  product,
-  setting,
-  disabled,
-  onModeChange,
-  onAltChange,
-}) {
-  const isSpecific = setting?.imageMode === "specific";
-  const thumbnailUrl = product.imageUrl || "";
-
-  return (
-    <div className={styles.imageRow}>
-      {thumbnailUrl ? (
-        <img src={thumbnailUrl} alt="" className={styles.productImage} />
-      ) : (
-        <EmptyImagePlaceholder />
-      )}
-
-      <div className={styles.imageRowMain}>
-        <div className={styles.imageRowTitle}>{product.title}</div>
-        <div className={styles.imageModeGroup}>
-          <label className={styles.imageModeLabel}>
-            <input
-              type="radio"
-              name={`image-mode-${product.productId}`}
-              checked={!isSpecific}
-              onChange={() => onModeChange(product.productId, "default")}
-              disabled={disabled}
-            />
-            Featured Image
-          </label>
-          <label className={styles.imageModeLabel}>
-            <input
-              type="radio"
-              name={`image-mode-${product.productId}`}
-              checked={isSpecific}
-              onChange={() => onModeChange(product.productId, "specific")}
-              disabled={disabled}
-            />
-            Specific image
-          </label>
-        </div>
-        {isSpecific ? (
-          <div className={styles.imageAltField}>
-            <label className={styles.imageAltLabel} htmlFor={`image-alt-${product.productId}`}>
-              Image alt text
-            </label>
-            <input
-              id={`image-alt-${product.productId}`}
-              type="text"
-              className={styles.imageAltInput}
-              value={setting?.imageAlt || ""}
-              onChange={(event) =>
-                onAltChange(product.productId, event.target.value)
-              }
-              autoComplete="off"
-              disabled={disabled}
-            />
-          </div>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
 export default function Index() {
   const loaderData = useLoaderData();
   const fetcher = useFetcher();
-  const catalogFetcher = useFetcher();
   const shopify = useAppBridge();
 
   const [activeTab, setActiveTab] = useState("visibility");
   const [savedSettings, setSavedSettings] = useState({
     mode: loaderData.mode,
     products: loaderData.products,
-    imageSettings: loaderData.imageSettings || {},
+    imageMode: loaderData.imageMode || "default",
+    imageAlt: loaderData.imageAlt || "",
   });
 
   const [mode, setMode] = useState(loaderData.mode);
   const [products, setProducts] = useState(loaderData.products);
-  const [imageSettings, setImageSettings] = useState(
-    loaderData.imageSettings || {},
-  );
-  const [catalogProducts, setCatalogProducts] = useState(
-    loaderData.catalog?.products || [],
-  );
-  const [catalogPageInfo, setCatalogPageInfo] = useState(
-    loaderData.catalog?.pageInfo || { hasNextPage: false, endCursor: null },
-  );
+  const [imageMode, setImageMode] = useState(loaderData.imageMode || "default");
+  const [imageAlt, setImageAlt] = useState(loaderData.imageAlt || "");
 
   const isSaving =
     fetcher.state === "submitting" || fetcher.state === "loading";
-  const incompleteSpecificImages = useMemo(
-    () => hasIncompleteSpecificImages(imageSettings),
-    [imageSettings],
-  );
-
-  const imageTabProducts = useMemo(() => {
-    if (mode === "specific") return products;
-    return catalogProducts;
-  }, [mode, products, catalogProducts]);
-
-  const imageTabProductIds = useMemo(
-    () => imageTabProducts.map((product) => product.productId),
-    [imageTabProducts],
-  );
+  const incompleteAltText =
+    imageMode === "specific" && !String(imageAlt || "").trim();
 
   const isImageSettingsDirty = useMemo(() => {
-    const current = normalizeImagePrefs(imageSettings, imageTabProductIds);
+    const current = normalizeImagePrefs(imageMode, imageAlt);
     const saved = normalizeImagePrefs(
-      savedSettings.imageSettings,
-      imageTabProductIds,
+      savedSettings.imageMode,
+      savedSettings.imageAlt,
     );
     return JSON.stringify(current) !== JSON.stringify(saved);
-  }, [imageSettings, savedSettings.imageSettings, imageTabProductIds]);
+  }, [imageMode, imageAlt, savedSettings.imageMode, savedSettings.imageAlt]);
 
   const isVisibilityDirty = useMemo(() => {
     const current = normalizeVisibility({ mode, products });
@@ -360,54 +185,45 @@ export default function Index() {
   }, [mode, products, savedSettings.mode, savedSettings.products]);
 
   const isDirty = isVisibilityDirty || isImageSettingsDirty;
-  const canSave = isDirty && !incompleteSpecificImages && !isSaving;
+  const canSave = isDirty && !incompleteAltText && !isSaving;
 
   useEffect(() => {
     if (fetcher.data?.ok) {
       const next = {
         mode: fetcher.data.mode,
         products: fetcher.data.products,
-        imageSettings: fetcher.data.imageSettings || {},
+        imageMode: fetcher.data.imageMode || "default",
+        imageAlt: fetcher.data.imageAlt || "",
       };
       setSavedSettings(next);
       setMode(fetcher.data.mode);
       setProducts(fetcher.data.products);
-      setImageSettings(fetcher.data.imageSettings || {});
+      setImageMode(fetcher.data.imageMode || "default");
+      setImageAlt(fetcher.data.imageAlt || "");
       shopify.toast.show("AR Viewer settings saved");
     } else if (fetcher.data?.error) {
       shopify.toast.show(fetcher.data.error, { isError: true });
     }
   }, [fetcher.data, shopify]);
 
-  useEffect(() => {
-    if (!catalogFetcher.data?.catalog) return;
-    const { products: nextProducts, pageInfo } = catalogFetcher.data.catalog;
-    setCatalogProducts((current) =>
-      current.length ? [...current, ...nextProducts] : nextProducts,
-    );
-    setCatalogPageInfo(pageInfo);
-  }, [catalogFetcher.data]);
-
   const handleSave = useCallback(() => {
     fetcher.submit(
       {
         mode,
         products: JSON.stringify(products),
-        imageSettings: JSON.stringify(imageSettings),
+        imageMode,
+        imageAlt,
       },
       { method: "post" },
     );
-  }, [fetcher, mode, products, imageSettings]);
+  }, [fetcher, mode, products, imageMode, imageAlt]);
 
   const handleDiscard = useCallback(() => {
     setMode(savedSettings.mode);
     setProducts(savedSettings.products);
-    setImageSettings(savedSettings.imageSettings);
-    setCatalogProducts(loaderData.catalog?.products || []);
-    setCatalogPageInfo(
-      loaderData.catalog?.pageInfo || { hasNextPage: false, endCursor: null },
-    );
-  }, [savedSettings, loaderData.catalog]);
+    setImageMode(savedSettings.imageMode || "default");
+    setImageAlt(savedSettings.imageAlt || "");
+  }, [savedSettings]);
 
   const pickProducts = useCallback(async () => {
     const picked = await shopify.resourcePicker({
@@ -435,49 +251,7 @@ export default function Index() {
     setProducts((current) =>
       current.filter((p) => toProductGid(p.productId) !== gid),
     );
-    setImageSettings((current) => {
-      const next = { ...current };
-      delete next[gid];
-      return next;
-    });
   };
-
-  const setProductImageMode = (productId, imageMode) => {
-    const gid = toProductGid(productId);
-    setImageSettings((current) => ({
-      ...current,
-      [gid]: withImageMode(
-        getImageSetting(current, productId),
-        imageMode === "specific" ? "specific" : "default",
-      ),
-    }));
-  };
-
-  const setProductImageAlt = (productId, imageAlt) => {
-    const gid = toProductGid(productId);
-    setImageSettings((current) => ({
-      ...current,
-      [gid]: {
-        imageMode: "specific",
-        imageAlt,
-      },
-    }));
-  };
-
-  const loadMoreProducts = () => {
-    if (!catalogPageInfo?.endCursor) return;
-    catalogFetcher.load(
-      `/app/catalog?cursor=${encodeURIComponent(catalogPageInfo.endCursor)}`,
-    );
-  };
-
-  useEffect(() => {
-    if (activeTab !== "images" || mode !== "all" || catalogProducts.length > 0) {
-      return;
-    }
-    if (catalogFetcher.state !== "idle") return;
-    catalogFetcher.load("/app/catalog");
-  }, [activeTab, mode, catalogProducts.length, catalogFetcher]);
 
   return (
     <s-page heading="AR Viewer">
@@ -589,49 +363,58 @@ export default function Index() {
           )}
         </div>
       ) : (
-        <s-section
-          heading={mode === "all" ? "All products" : "Selected products"}
-        >
+        <s-section heading="Which product image should AR use?">
           <s-paragraph>
-            Choose whether each product uses its featured image in AR or a
-            specific gallery image matched by alt text.
+            Choose the image shown in the VR viewer on product pages. When using
+            alt text image, the viewer matches a gallery image by its alt text.
+            If no match is found, the featured image is used instead.
           </s-paragraph>
 
-          {mode === "specific" && products.length === 0 ? (
-            <div className={styles.emptyState}>
-              Select products on the Visibility tab first, then configure AR
-              images here.
+          <div className={styles.choiceGroup}>
+            <label
+              className={`${styles.choice} ${imageMode !== "specific" ? styles.choiceSelected : ""}`}
+            >
+              <input
+                type="radio"
+                name="ar-image-mode"
+                value="default"
+                className={styles.choiceInput}
+                checked={imageMode !== "specific"}
+                onChange={() => setImageMode("default")}
+                disabled={isSaving}
+              />
+              <span className={styles.choiceLabel}>Featured image</span>
+            </label>
+
+            <label
+              className={`${styles.choice} ${imageMode === "specific" ? styles.choiceSelected : ""}`}
+            >
+              <input
+                type="radio"
+                name="ar-image-mode"
+                value="specific"
+                className={styles.choiceInput}
+                checked={imageMode === "specific"}
+                onChange={() => setImageMode("specific")}
+                disabled={isSaving}
+              />
+              <span className={styles.choiceLabel}>Alt text image</span>
+            </label>
+          </div>
+
+          {imageMode === "specific" ? (
+            <div style={{ marginTop: "16px", maxWidth: "480px" }}>
+              <s-text-field
+                label="Image alt text"
+                value={imageAlt}
+                onChange={(e) => setImageAlt(e.currentTarget.value)}
+                placeholder="e.g. Room scene"
+                details="Enter the exact alt text of the product image you want in AR."
+                autocomplete="off"
+                disabled={isSaving}
+              />
             </div>
-          ) : imageTabProducts.length === 0 ? (
-            <div className={styles.emptyState}>No products found.</div>
-          ) : (
-            <div className={styles.productList}>
-              {imageTabProducts.map((product) => {
-                const gid = toProductGid(product.productId);
-                return (
-                  <ImageProductRow
-                    key={gid}
-                    product={product}
-                    setting={getImageSetting(imageSettings, gid)}
-                    disabled={isSaving}
-                    onModeChange={setProductImageMode}
-                    onAltChange={setProductImageAlt}
-                  />
-                );
-              })}
-              {mode === "all" && catalogPageInfo?.hasNextPage ? (
-                <div className={styles.loadMoreWrap}>
-                  <s-button
-                    type="button"
-                    onClick={loadMoreProducts}
-                    disabled={catalogFetcher.state !== "idle"}
-                  >
-                    Load more products
-                  </s-button>
-                </div>
-              ) : null}
-            </div>
-          )}
+          ) : null}
         </s-section>
       )}
 

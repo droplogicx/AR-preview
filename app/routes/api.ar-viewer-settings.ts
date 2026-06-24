@@ -1,5 +1,5 @@
 import {
-  getArViewerProductImageSetting,
+  getArViewerImageSetting,
   isArViewerEnabledForProduct,
   resolveArImageByAlt,
 } from "../ar-viewer-settings.server";
@@ -45,8 +45,8 @@ export async function loader({ request }: { request: Request }) {
 
   const enabled = await isArViewerEnabledForProduct(shop, productId);
   const imageSetting = enabled
-    ? await getArViewerProductImageSetting(shop, productId)
-    : { imageMode: "default", imageAlt: null };
+    ? await getArViewerImageSetting(shop)
+    : { imageMode: "default", imageAlt: "" };
   let arImage = null;
 
   if (imageSetting.imageMode === "specific" && imageSetting.imageAlt) {
