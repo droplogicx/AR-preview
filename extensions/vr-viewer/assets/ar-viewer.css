@@ -1516,7 +1516,7 @@
     left: auto;
     transform: translateY(6px);
     width: min(240px, calc(100vw - 32px));
-    max-width: min(240px, calc(100vw - 32px));
+    /* max-width: min(240px, calc(100vw - 32px)); */
   }
   .ar-popover-anchor-customize .ar-customize-popover.ar-open {
     transform: translateY(0);
@@ -1597,7 +1597,7 @@
     left: auto;
     transform: translateY(6px);
     width: min(240px, calc(100vw - 32px));
-    max-width: min(240px, calc(100vw - 32px));
+    /* max-width: min(240px, calc(100vw - 32px)); */
   }
   .ar-popover-anchor-customize .ar-customize-popover.ar-open {
     transform: translateY(0);
