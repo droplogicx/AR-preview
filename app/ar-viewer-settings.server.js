@@ -59,7 +59,25 @@ const PRODUCT_IMAGES_QUERY = `#graphql
   }
 `;
 
+const PRODUCT_COLLECTIONS_QUERY = `#graphql
+  query ProductCollections($id: ID!) {
+    product(id: $id) {
+      collections(first: 50) {
+        nodes {
+          id
+        }
+      }
+    }
+  }
+`;
+
 export function normalizeProductId(id) {
+  if (!id) return "";
+  const match = String(id).match(/(\d+)$/);
+  return match ? match[1] : String(id);
+}
+
+export function normalizeCollectionId(id) {
   if (!id) return "";
   const match = String(id).match(/(\d+)$/);
   return match ? match[1] : String(id);
@@ -70,6 +88,13 @@ export function toProductGid(productId) {
   if (!normalized) return "";
   if (String(productId).startsWith("gid://")) return String(productId);
   return `gid://shopify/Product/${normalized}`;
+}
+
+export function toCollectionGid(collectionId) {
+  const normalized = normalizeCollectionId(collectionId);
+  if (!normalized) return "";
+  if (String(collectionId).startsWith("gid://")) return String(collectionId);
+  return `gid://shopify/Collection/${normalized}`;
 }
 
 function thumbFromUrl(url) {
@@ -134,19 +159,32 @@ export async function getArViewerSettings(shop) {
   };
 }
 
-export async function isArViewerEnabledForProduct(shop, productId) {
+export async function isArViewerEnabledForProduct(shop, productId, admin) {
   const settings = await prisma.arViewerSettings.findUnique({ where: { shop } });
   const mode = settings?.mode ?? "all";
   if (mode !== "specific") return true;
 
-  const normalizedId = normalizeProductId(productId);
-  const products = await prisma.arViewerProduct.findMany({
+  const collections = await prisma.arViewerProduct.findMany({
     where: { shop },
     select: { productId: true },
   });
 
-  return products.some(
-    (p) => normalizeProductId(p.productId) === normalizedId,
+  if (!collections.length) return false;
+  if (!productId || !admin) return false;
+
+  const selectedCollectionIds = new Set(
+    collections.map((c) => normalizeCollectionId(c.productId)),
+  );
+
+  const response = await admin.graphql(PRODUCT_COLLECTIONS_QUERY, {
+    variables: { id: toProductGid(productId) },
+  });
+  const json = await response.json();
+  const product = json.data?.product;
+  const collectionNodes = product?.collections?.nodes || [];
+
+  return collectionNodes.some((collection) =>
+    selectedCollectionIds.has(normalizeCollectionId(collection.id)),
   );
 }
 

@@ -22,16 +22,18 @@ export const action = async ({ request }) => {
   const mode = formData.get("mode");
   const imageMode = formData.get("imageMode");
   const imageAlt = formData.get("imageAlt") || "";
-  let products = [];
+  let collections = [];
 
   try {
-    products = JSON.parse(formData.get("products") || "[]");
+    collections = JSON.parse(
+      formData.get("collections") || formData.get("products") || "[]",
+    );
   } catch {
     return { ok: false, error: "Invalid settings payload" };
   }
 
-  if (mode === "specific" && products.length === 0) {
-    return { ok: false, error: "Select at least one product" };
+  if (mode === "specific" && collections.length === 0) {
+    return { ok: false, error: "Select at least one collection" };
   }
 
   if (imageMode === "specific" && !String(imageAlt).trim()) {
@@ -44,7 +46,11 @@ export const action = async ({ request }) => {
   try {
     const settings = await saveArViewerSettings(session.shop, {
       mode,
-      products,
+      products: collections.map((collection) => ({
+        productId: collection.collectionId,
+        title: collection.title,
+        imageUrl: collection.imageUrl,
+      })),
       imageMode,
       imageAlt,
     });
@@ -57,34 +63,34 @@ export const action = async ({ request }) => {
   }
 };
 
-function productImageFromPicker(product) {
+function collectionImageFromPicker(collection) {
   return (
-    product.images?.[0]?.originalSrc ||
-    product.images?.[0]?.url ||
-    product.featuredImage?.url ||
-    product.featuredMedia?.preview?.image?.url ||
-    product.image?.url ||
+    collection.image?.originalSrc ||
+    collection.image?.src ||
+    collection.image?.url ||
+    collection.featuredImage?.url ||
+    collection.featuredMedia?.preview?.image?.url ||
     ""
   );
 }
 
-function toProductGid(productId) {
-  if (!productId) return "";
-  if (String(productId).startsWith("gid://")) return String(productId);
-  const match = String(productId).match(/(\d+)$/);
-  return match ? `gid://shopify/Product/${match[1]}` : String(productId);
+function toCollectionGid(collectionId) {
+  if (!collectionId) return "";
+  if (String(collectionId).startsWith("gid://")) return String(collectionId);
+  const match = String(collectionId).match(/(\d+)$/);
+  return match ? `gid://shopify/Collection/${match[1]}` : String(collectionId);
 }
 
-function normalizeVisibility({ mode, products }) {
+function normalizeVisibility({ mode, collections }) {
   return {
     mode,
-    products: [...products]
-      .map((p) => ({
-        productId: toProductGid(p.productId),
-        title: p.title || "",
-        imageUrl: p.imageUrl || "",
+    collections: [...collections]
+      .map((c) => ({
+        collectionId: toCollectionGid(c.collectionId),
+        title: c.title || "",
+        imageUrl: c.imageUrl || "",
       }))
-      .sort((a, b) => a.productId.localeCompare(b.productId)),
+      .sort((a, b) => a.collectionId.localeCompare(b.collectionId)),
   };
 }
 
@@ -117,11 +123,11 @@ function DeleteIcon() {
   );
 }
 
-function ProductRow({ product, onRemove, disabled }) {
+function CollectionRow({ collection, onRemove, disabled }) {
   return (
     <div className={styles.productRow}>
-      {product.imageUrl ? (
-        <img src={product.imageUrl} alt="" className={styles.productImage} />
+      {collection.imageUrl ? (
+        <img src={collection.imageUrl} alt="" className={styles.productImage} />
       ) : (
         <div
           className={`${styles.productImage} ${styles.productImagePlaceholder}`}
@@ -129,12 +135,12 @@ function ProductRow({ product, onRemove, disabled }) {
           —
         </div>
       )}
-      <span className={styles.productTitle}>{product.title}</span>
+      <span className={styles.productTitle}>{collection.title}</span>
       <button
         type="button"
         className={styles.deleteButton}
-        aria-label={`Remove ${product.title}`}
-        onClick={() => onRemove(product.productId)}
+        aria-label={`Remove ${collection.title}`}
+        onClick={() => onRemove(collection.collectionId)}
         disabled={disabled}
       >
         <DeleteIcon />
@@ -151,13 +157,13 @@ export default function Index() {
   const [activeTab, setActiveTab] = useState("visibility");
   const [savedSettings, setSavedSettings] = useState({
     mode: loaderData.mode,
-    products: loaderData.products,
+    collections: loaderData.products,
     imageMode: loaderData.imageMode || "default",
     imageAlt: loaderData.imageAlt || "",
   });
 
   const [mode, setMode] = useState(loaderData.mode);
-  const [products, setProducts] = useState(loaderData.products);
+  const [collections, setCollections] = useState(loaderData.products);
   const [imageMode, setImageMode] = useState(loaderData.imageMode || "default");
   const [imageAlt, setImageAlt] = useState(loaderData.imageAlt || "");
 
@@ -176,13 +182,13 @@ export default function Index() {
   }, [imageMode, imageAlt, savedSettings.imageMode, savedSettings.imageAlt]);
 
   const isVisibilityDirty = useMemo(() => {
-    const current = normalizeVisibility({ mode, products });
+    const current = normalizeVisibility({ mode, collections });
     const saved = normalizeVisibility({
       mode: savedSettings.mode,
-      products: savedSettings.products,
+      collections: savedSettings.collections,
     });
     return JSON.stringify(current) !== JSON.stringify(saved);
-  }, [mode, products, savedSettings.mode, savedSettings.products]);
+  }, [mode, collections, savedSettings.mode, savedSettings.collections]);
 
   const isDirty = isVisibilityDirty || isImageSettingsDirty;
   const canSave = isDirty && !incompleteAltText && !isSaving;
@@ -191,13 +197,13 @@ export default function Index() {
     if (fetcher.data?.ok) {
       const next = {
         mode: fetcher.data.mode,
-        products: fetcher.data.products,
+        collections: fetcher.data.products,
         imageMode: fetcher.data.imageMode || "default",
         imageAlt: fetcher.data.imageAlt || "",
       };
       setSavedSettings(next);
       setMode(fetcher.data.mode);
-      setProducts(fetcher.data.products);
+      setCollections(fetcher.data.products);
       setImageMode(fetcher.data.imageMode || "default");
       setImageAlt(fetcher.data.imageAlt || "");
       shopify.toast.show("AR Viewer settings saved");
@@ -210,46 +216,43 @@ export default function Index() {
     fetcher.submit(
       {
         mode,
-        products: JSON.stringify(products),
+        collections: JSON.stringify(collections),
         imageMode,
         imageAlt,
       },
       { method: "post" },
     );
-  }, [fetcher, mode, products, imageMode, imageAlt]);
+  }, [fetcher, mode, collections, imageMode, imageAlt]);
 
   const handleDiscard = useCallback(() => {
     setMode(savedSettings.mode);
-    setProducts(savedSettings.products);
+    setCollections(savedSettings.collections);
     setImageMode(savedSettings.imageMode || "default");
     setImageAlt(savedSettings.imageAlt || "");
   }, [savedSettings]);
 
-  const pickProducts = useCallback(async () => {
+  const pickCollections = useCallback(async () => {
     const picked = await shopify.resourcePicker({
-      type: "product",
+      type: "collection",
       multiple: true,
-      filter: {
-        variants: false,
-      },
-      selectionIds: products.map((p) => ({ id: toProductGid(p.productId) })),
+      selectionIds: collections.map((c) => ({ id: toCollectionGid(c.collectionId) })),
     });
 
     if (!picked?.length) return;
 
-    setProducts(
+    setCollections(
       picked.map((p) => ({
-        productId: p.id,
+        collectionId: p.id,
         title: p.title,
-        imageUrl: productImageFromPicker(p),
+        imageUrl: collectionImageFromPicker(p),
       })),
     );
-  }, [products, shopify]);
+  }, [collections, shopify]);
 
-  const removeProduct = (productId) => {
-    const gid = toProductGid(productId);
-    setProducts((current) =>
-      current.filter((p) => toProductGid(p.productId) !== gid),
+  const removeCollection = (collectionId) => {
+    const gid = toCollectionGid(collectionId);
+    setCollections((current) =>
+      current.filter((c) => toCollectionGid(c.collectionId) !== gid),
     );
   };
 
@@ -295,7 +298,7 @@ export default function Index() {
           <s-section heading="Where should the viewer appear?">
             <s-paragraph>
               Choose whether the AR Viewer block is available on every product
-              page or only on products you select below.
+              page or only on collections you select below.
             </s-paragraph>
 
             <div className={styles.choiceGroup}>
@@ -310,7 +313,7 @@ export default function Index() {
                   checked={mode === "all"}
                   onChange={() => setMode("all")}
                 />
-                <span className={styles.choiceLabel}>All products</span>
+                <span className={styles.choiceLabel}>All collections</span>
               </label>
 
               <label
@@ -324,36 +327,36 @@ export default function Index() {
                   checked={mode === "specific"}
                   onChange={() => setMode("specific")}
                 />
-                <span className={styles.choiceLabel}>Specific products only</span>
+                <span className={styles.choiceLabel}>Specific collections only</span>
               </label>
             </div>
           </s-section>
 
           {mode === "specific" && (
-            <s-section heading="Selected products">
+            <s-section heading="Selected collections">
               <div className={styles.productsToolbar}>
-                <s-button type="button" onClick={pickProducts}>
-                  Select products
+                <s-button type="button" onClick={pickCollections}>
+                  Select collections
                 </s-button>
-                {products.length > 0 && (
+                {collections.length > 0 && (
                   <span className={styles.productCount}>
-                    {products.length} product{products.length === 1 ? "" : "s"}
+                    {collections.length} collection{collections.length === 1 ? "" : "s"}
                   </span>
                 )}
               </div>
 
-              {products.length === 0 ? (
+              {collections.length === 0 ? (
                 <div className={styles.emptyState}>
-                  No products selected yet. Click &quot;Select products&quot; to
-                  choose which products show the AR Viewer.
+                  No collections selected yet. Click &quot;Select collections&quot; to
+                  choose which collections show the AR Viewer.
                 </div>
               ) : (
                 <div className={styles.productList}>
-                  {products.map((product) => (
-                    <ProductRow
-                      key={product.productId}
-                      product={product}
-                      onRemove={removeProduct}
+                  {collections.map((collection) => (
+                    <CollectionRow
+                      key={collection.collectionId}
+                      collection={collection}
+                      onRemove={removeCollection}
                       disabled={isSaving}
                     />
                   ))}
@@ -421,8 +424,8 @@ export default function Index() {
       <s-section slot="aside" heading="Theme setup">
         <s-paragraph>
           Add the <strong>VR Viewer</strong> app block to your product template
-          in the theme editor. The block will only render on products allowed by
-          these settings.
+          in the theme editor. The block will only render on products in the
+          selected collections.
         </s-paragraph>
       </s-section>
     </s-page>

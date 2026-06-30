@@ -26,10 +26,15 @@ export async function loader({ request }: { request: Request }) {
   }
 
   let shop = url.searchParams.get("shop") || "";
+  let admin = null;
 
   try {
     const auth = await authenticate.public.appProxy(request);
     if (auth.session?.shop) shop = auth.session.shop;
+    if (shop) {
+      const unauth = await unauthenticated.admin(shop);
+      admin = unauth.admin;
+    }
   } catch {
     if (!shop) {
       const host = url.hostname;
@@ -43,7 +48,7 @@ export async function loader({ request }: { request: Request }) {
     return Response.json({ error: "shop is required" }, { status: 400, headers: CORS });
   }
 
-  const enabled = await isArViewerEnabledForProduct(shop, productId);
+  const enabled = await isArViewerEnabledForProduct(shop, productId, admin);
   const imageSetting = enabled
     ? await getArViewerImageSetting(shop)
     : { imageMode: "default", imageAlt: "" };
