@@ -1,0 +1,22 @@
+{% if template == 'product' and product != blank %}
+
+  {% assign title = product.title | escape %}
+
+  <div id="ps-root"
+    data-title="{{ title }}"
+    data-viewer-src="{{ 'poster-studio-3d-viewer.js' | asset_url }}"
+  ></div>
+
+  {{ 'poster-studio.css' | asset_url | stylesheet_tag }}
+  <script src="{{ 'poster-studio.js' | asset_url }}" defer></script>
+
+{% endif %}
+
+{% schema %}
+{
+  "name": "Poster Studio",
+  "target": "body",
+  "templates": ["product"],
+  "settings": []
+}
+{% endschema %}

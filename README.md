@@ -79,6 +79,22 @@ For more information on the Shopify Dev MCP please read [the documentation](http
 
 ### Application Storage
 
+## Poster Studio 3D Viewer
+
+The storefront 3D framed-print viewer is implemented in the VR Viewer theme app extension:
+
+- Toggle flag: `ENABLE_3D_VIEWER` near the top of `extensions/vr-viewer/assets/poster-studio.js`.
+- Storefront controller: `extensions/vr-viewer/assets/poster-studio.js`.
+- Three.js source: `scripts/poster-studio-3d-viewer.js`.
+- Bundled lazy-loaded Shopify asset: `extensions/vr-viewer/assets/poster-studio-3d-viewer.js`.
+- Theme block: `extensions/vr-viewer/blocks/poster-studio.liquid`.
+
+To tweak frame materials, edit `FRAME_COLORS` in `scripts/poster-studio-3d-viewer.js`, then rebuild:
+
+```shell
+node node_modules/esbuild/bin/esbuild scripts/poster-studio-3d-viewer.js --bundle --format=iife --target=es2020 --outfile=extensions/vr-viewer/assets/poster-studio-3d-viewer.js --minify
+```
+
 This template uses [Prisma](https://www.prisma.io/) to store session data, by default using an [SQLite](https://www.sqlite.org/index.html) database.
 The database is defined as a Prisma schema in `prisma/schema.prisma`.
 
