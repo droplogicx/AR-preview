@@ -213,15 +213,13 @@ export default function Index() {
   }, [fetcher.data, shopify]);
 
   const handleSave = useCallback(() => {
-    fetcher.submit(
-      {
-        mode,
-        collections: JSON.stringify(collections),
-        imageMode,
-        imageAlt,
-      },
-      { method: "post" },
-    );
+    const formData = new FormData();
+    formData.set("mode", mode);
+    formData.set("collections", JSON.stringify(collections));
+    formData.set("imageMode", imageMode);
+    formData.set("imageAlt", imageAlt);
+
+    fetcher.submit(formData, { method: "post" });
   }, [fetcher, mode, collections, imageMode, imageAlt]);
 
   const handleDiscard = useCallback(() => {
@@ -411,8 +409,8 @@ export default function Index() {
                 label="Image alt text"
                 value={imageAlt}
                 onChange={(e) => setImageAlt(e.currentTarget.value)}
-                placeholder="e.g. Room scene"
-                details="Enter the exact alt text of the product image you want in AR."
+                placeholder="e.g. Room scene, Living room, Poster"
+                details="Enter one or more alt text values separated by commas. Any matching image alt will be used."
                 autocomplete="off"
                 disabled={isSaving}
               />

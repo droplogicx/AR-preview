@@ -29,12 +29,12 @@
 }
 
 .ps-3d-viewer-shell {
-  position: fixed;
+  position: absolute;
   top: 0;
   left: 0;
   width: 0;
   height: 0;
-  z-index: 2147482999;
+  z-index: 3;
   display: flex;
   flex-direction: column;
   background: transparent;
@@ -85,17 +85,22 @@
 .ps-3d-surface-toggle,
 .ps-3d-close {
   height: 34px;
-  padding: 0 13px;
+  min-width: 34px;
+  padding: 0 10px;
   border: 1px solid rgba(17, 17, 17, 0.12);
-  border-radius: 999px;
+  border-radius: 50%;
   background: rgba(255, 255, 255, 0.92);
   color: #111;
-  font: 600 12px/1 inherit;
+  font: 700 18px/1 inherit;
   cursor: pointer;
 }
 
 .ps-3d-close {
-  margin-left: auto;
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 4;
+  display: none;
 }
 
 .ps-primary-image-hidden {

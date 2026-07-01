@@ -153,6 +153,7 @@ export async function getArViewerSettings(shop) {
     imageAlt: imagePrefs.imageAlt,
     products: products.map((p) => ({
       productId: p.productId,
+      collectionId: p.productId,
       title: p.productTitle || p.productId,
       imageUrl: p.productImageUrl || "",
     })),
@@ -219,10 +220,24 @@ export async function resolveArImageByAlt(admin, productId, imageAlt) {
     });
   }
 
-  const normalizedAlt = alt.toLowerCase();
-  const match = candidates.find(
-    (image) => String(image.altText || "").trim().toLowerCase() === normalizedAlt,
-  );
+  const requestedAlts = alt
+    .split(",")
+    .map((value) => String(value || "").trim().toLowerCase())
+    .filter(Boolean);
+
+  if (!requestedAlts.length) return null;
+
+  const match = candidates.find((image) => {
+    const imageAlt = String(image.altText || "").trim().toLowerCase();
+    const imageAltTokens = imageAlt
+      .split(",")
+      .map((value) => String(value || "").trim().toLowerCase())
+      .filter(Boolean);
+
+    return requestedAlts.some((requestedAlt) =>
+      imageAltTokens.includes(requestedAlt) || imageAlt === requestedAlt,
+    );
+  });
 
   if (!match?.url) return null;
 
@@ -306,7 +321,7 @@ export async function saveArViewerSettings(shop, { mode, products, imageMode, im
           prisma.arViewerProduct.createMany({
             data: normalizedProducts.map((p) => ({
               shop,
-              productId: toProductGid(p.productId),
+              productId: toCollectionGid(p.productId),
               productTitle: p.title || null,
               productImageUrl: p.imageUrl || null,
             })),
