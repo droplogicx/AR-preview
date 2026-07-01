@@ -31,12 +31,23 @@
   var shellHost = null;
   var shellHostPreviousPosition = '';
   var viewerLoadTimer = null;
+  var lastViewerPayloadSignature = '';
   var VARIANT_META = { size: null, frame: null, border: null };
   var FRAME_COLORS = {
     none: 'transparent',
-    'natural-timber': '#c4a574',
-    white: '#f5f5f0',
+    'natural-timber': '#caa375',
+    white: '#e9e4d8',
     black: '#1a1a1a'
+  };
+  var FRAME_SWATCH_IMAGES = {
+    none: root.dataset.swatchUnframed || '',
+    'natural-timber': root.dataset.swatchNatural || '',
+    white: root.dataset.swatchWhite || '',
+    black: root.dataset.swatchBlack || ''
+  };
+  var NATURAL_FRAME_REFERENCES = {
+    portrait: root.dataset.swatchNatural || '',
+    landscape: root.dataset.swatchNaturalLandscape || root.dataset.swatchNatural || ''
   };
 
   var HOST_SELECTORS = [
@@ -195,6 +206,9 @@
     return {
       frameId: frameId,
       frameColor: FRAME_COLORS[frameId] || FRAME_COLORS['natural-timber'],
+      frameTextureUrl: FRAME_SWATCH_IMAGES[frameId] || '',
+      naturalFramePortraitUrl: NATURAL_FRAME_REFERENCES.portrait,
+      naturalFrameLandscapeUrl: NATURAL_FRAME_REFERENCES.landscape,
       frameValue: frameValue,
       matting: matting,
       borderValue: borderValue,
@@ -213,12 +227,45 @@
     return payload;
   }
 
+  function viewerPayloadSignature(payload) {
+    if (!payload) return '';
+    return [
+      payload.url || '',
+      payload.frameId || '',
+      payload.frameColor || '',
+      payload.frameTextureUrl || '',
+      payload.naturalFramePortraitUrl || '',
+      payload.naturalFrameLandscapeUrl || '',
+      payload.matting || '',
+      payload.printWidthCm || '',
+      payload.printHeightCm || ''
+    ].join('|');
+  }
+
   function findProductImageByAlt(alt) {
-    alt = String(alt || '').trim().toLowerCase();
-    if (!alt || !productData || !productData.images) return null;
+    var normalizedAlt = String(alt || '').trim().toLowerCase();
+    if (!normalizedAlt || !productData || !productData.images) return null;
+
+    var requestedAlts = normalizedAlt
+      .split(',')
+      .map(function (value) { return String(value || '').trim().toLowerCase(); })
+      .filter(function (value) { return value; });
+
+    if (!requestedAlts.length) return null;
+
     for (var i = 0; i < productData.images.length; i++) {
       var image = productData.images[i];
-      if (String(image.alt || '').trim().toLowerCase() === alt) return image;
+      var imageAlt = String(image.alt || '').trim().toLowerCase();
+      if (!imageAlt) continue;
+
+      var imageAltTokens = imageAlt
+        .split(',')
+        .map(function (value) { return String(value || '').trim().toLowerCase(); })
+        .filter(function (value) { return value; });
+
+      if (requestedAlts.some(function (requestedAlt) { return imageAltTokens.indexOf(requestedAlt) >= 0 || imageAlt === requestedAlt; })) {
+        return image;
+      }
     }
     return null;
   }
@@ -435,7 +482,7 @@
     shell.innerHTML = [
       '<button type="button" class="ps-3d-close" aria-label="Close 3D preview">x</button>',
       '<div class="ps-3d-canvas" role="img" aria-label="' + escapeHtml(productTitle) + ' as an interactive 3D image"></div>',
-      '<div class="ps-3d-loading" hidden>Loading 3D...</div>',
+      '<div class="ps-3d-loading" hidden><div class="ps-3d-loader-bar" aria-hidden="true"></div></div>',
       '<div class="ps-3d-error" hidden>3D preview could not load for this image.</div>'
     ].join('');
     document.body.appendChild(shell);
@@ -523,6 +570,7 @@
     var payload = currentImagePayload();
     var rect = imageRect();
     if (!payload || !payload.url || !isRectUsable(rect)) return;
+    lastViewerPayloadSignature = viewerPayloadSignature(payload);
 
     ensureShell();
     shell.hidden = false;
@@ -570,6 +618,9 @@
             imageHeight: payload.height,
             frameId: payload.frameId,
             frameColor: payload.frameColor,
+            frameTextureUrl: payload.frameTextureUrl,
+            naturalFramePortraitUrl: payload.naturalFramePortraitUrl,
+            naturalFrameLandscapeUrl: payload.naturalFrameLandscapeUrl,
             matting: payload.matting,
             printWidthCm: payload.printWidthCm,
             printHeightCm: payload.printHeightCm,
@@ -612,7 +663,23 @@
   function syncOpenViewerImage() {
     if (!viewerApi || !shell || shell.hidden) return;
     var payload = currentImagePayload();
-    if (payload && payload.url && viewerApi.updateImage) viewerApi.updateImage(payload);
+    if (payload && payload.url && viewerApi.updateImage) {
+      var signature = viewerPayloadSignature(payload);
+      if (signature === lastViewerPayloadSignature) return;
+      lastViewerPayloadSignature = signature;
+      setError('');
+      setLoading(true);
+      viewerLoading = true;
+      clearViewerLoadTimer();
+      viewerLoadTimer = setTimeout(function () {
+        if (!viewerLoading) return;
+        setLoading(false);
+        viewerLoading = false;
+        positionViewerUi();
+      }, 12000);
+      viewerApi.updateImage(payload);
+      if (viewerApi.resume) viewerApi.resume();
+    }
   }
 
   function enhanceGallery() {

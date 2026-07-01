@@ -8,8 +8,8 @@ const HOVER_SIDE_TILT_ANGLE = THREE.MathUtils.degToRad(10);
 const HOVER_VERTICAL_TILT_ANGLE = THREE.MathUtils.degToRad(8);
 const FRAME_COLORS = {
   none: 'transparent',
-  'natural-timber': '#c4a574',
-  white: '#f5f5f0',
+  'natural-timber': '#caa375',
+  white: '#e9e4d8',
   black: '#1a1a1a'
 };
 
@@ -63,15 +63,15 @@ function createWoodTexture() {
   const ctx = canvas.getContext('2d');
   const base = ctx.createLinearGradient(0, 0, 0, canvas.height);
 
-  base.addColorStop(0, '#8e8d87');
-  base.addColorStop(0.46, '#6c6d69');
-  base.addColorStop(1, '#9b9991');
+  base.addColorStop(0, '#d9b787');
+  base.addColorStop(0.42, '#b98d5f');
+  base.addColorStop(1, '#e6c89d');
   ctx.fillStyle = base;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   for (let y = 0; y < canvas.height; y += 1) {
     const wave = Math.sin(y * 0.08) * 16 + Math.sin(y * 0.023) * 38;
-    ctx.strokeStyle = `rgba(42,42,39,${0.08 + Math.random() * 0.1})`;
+    ctx.strokeStyle = `rgba(96,58,28,${0.08 + Math.random() * 0.1})`;
     ctx.lineWidth = 1 + Math.random() * 1.2;
     ctx.beginPath();
     ctx.moveTo(0, y + Math.random() * 1.5);
@@ -82,7 +82,7 @@ function createWoodTexture() {
   }
 
   for (let i = 0; i < 70; i += 1) {
-    ctx.strokeStyle = 'rgba(35,35,32,0.16)';
+    ctx.strokeStyle = 'rgba(120,75,36,0.18)';
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.ellipse(
@@ -247,6 +247,7 @@ class ImageSlabViewer {
     this.clock = new THREE.Clock();
     this.textureLoader = new THREE.TextureLoader();
     this.textureLoader.crossOrigin = 'anonymous';
+    this.frameTextureCache = new Map();
     this.surface = this.options.surface === 'canvas' ? 'canvas' : 'glossy';
     this.hoverOrbit = {
       active: false,
@@ -272,6 +273,9 @@ class ImageSlabViewer {
       height: this.options.imageHeight,
       frameId: this.options.frameId,
       frameColor: this.options.frameColor,
+      frameTextureUrl: this.options.frameTextureUrl,
+      naturalFramePortraitUrl: this.options.naturalFramePortraitUrl,
+      naturalFrameLandscapeUrl: this.options.naturalFrameLandscapeUrl,
       matting: this.options.matting,
       printWidthCm: this.options.printWidthCm,
       printHeightCm: this.options.printHeightCm
@@ -371,8 +375,8 @@ class ImageSlabViewer {
   addRail(width, height, depth, x, y, material) {
     const rail = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), material);
     rail.position.set(x, y, 0);
-    rail.castShadow = true;
-    rail.receiveShadow = true;
+    rail.castShadow = false;
+    rail.receiveShadow = false;
     this.imageGroup.add(rail);
     return rail;
   }
@@ -381,8 +385,8 @@ class ImageSlabViewer {
     const bevel = new THREE.Mesh(new THREE.BoxGeometry(width, height, 0.02), material);
     bevel.position.set(x, y, z);
     bevel.rotation.set(rotation.x || 0, rotation.y || 0, 0);
-    bevel.castShadow = true;
-    bevel.receiveShadow = true;
+    bevel.castShadow = false;
+    bevel.receiveShadow = false;
     this.imageGroup.add(bevel);
     return bevel;
   }
@@ -420,21 +424,70 @@ class ImageSlabViewer {
     texture.needsUpdate = true;
   }
 
+  naturalFrameStripTexture(vertical = false, onLoad) {
+    const url = vertical
+      ? this.options.naturalFramePortraitUrl
+      : this.options.naturalFrameLandscapeUrl || this.options.naturalFramePortraitUrl;
+    if (!url) return vertical ? this.woodTextureVert : this.woodTexture;
+
+    const key = `natural-direct|${vertical ? 'v' : 'h'}|${url}`;
+    if (this.frameTextureCache.has(key)) {
+      const cached = this.frameTextureCache.get(key);
+      if (cached.userData && cached.userData.loaded) {
+        if (typeof onLoad === 'function') onLoad(cached);
+      } else if (typeof onLoad === 'function') {
+        cached.userData.loadCallbacks.push(onLoad);
+      }
+      return cached;
+    }
+
+    const texture = this.textureLoader.load(
+      url,
+      () => {
+        texture.userData.loaded = true;
+        texture.needsUpdate = true;
+        texture.userData.loadCallbacks.splice(0).forEach((callback) => callback(texture));
+        this.animate();
+      },
+      undefined,
+      () => this.animate()
+    );
+    texture.userData.loaded = false;
+    texture.userData.loadCallbacks = typeof onLoad === 'function' ? [onLoad] : [];
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    if (vertical) {
+      texture.repeat.set(0.11, 0.76);
+      texture.offset.set(0.055, 0.12);
+    } else {
+      texture.repeat.set(0.74, 0.12);
+      texture.offset.set(0.13, 0.82);
+    }
+    texture.anisotropy = Math.min(16, this.renderer.capabilities.getMaxAnisotropy());
+    this.frameTextureCache.set(key, texture);
+    return texture;
+  }
+
   frameMaterial(frameId, color, texture, vertical = false, bevel = false) {
     const normalized = normalizeFrameId(frameId);
     const baseColor = frameColorFor(normalized, color);
-    const materialOptions = {
-      color: new THREE.Color(baseColor === 'transparent' ? '#c4a574' : baseColor),
-      roughness: normalized === 'natural-timber' ? (bevel ? 0.54 : 0.6) : 0.46,
-      metalness: 0,
-      envMapIntensity: normalized === 'black' ? 1.15 : 1.45
-    };
-
     if (normalized === 'natural-timber') {
-      materialOptions.map = vertical ? this.woodTextureVert : texture;
+      const material = new THREE.MeshBasicMaterial({
+        color: 0xd4b186
+      });
+      this.naturalFrameStripTexture(vertical, (loadedTexture) => {
+        material.map = loadedTexture;
+        material.color.set(0xffffff);
+        material.needsUpdate = true;
+        this.animate();
+      });
+      return material;
     }
 
-    return new THREE.MeshStandardMaterial(materialOptions);
+    return new THREE.MeshBasicMaterial({
+      color: new THREE.Color(baseColor === 'transparent' ? '#c4a574' : baseColor)
+    });
   }
 
   buildImageSlab(width, height, texture) {
@@ -445,8 +498,8 @@ class ImageSlabViewer {
     const hasFrame = frameId !== 'none';
     // Slim frame depth so side views do not overpower the artwork.
     const depth = hasFrame ? Math.max(0.02, Math.min(width, height) * 0.01) : Math.max(0.012, Math.min(width, height) * 0.006);
-    const border = hasFrame ? Math.max(0.08, Math.min(width, height) * 0.035) : 0;
-    const lip = hasFrame ? Math.max(0.02, border * 0.25) : 0;
+    const border = hasFrame ? Math.max(0.045, Math.min(width, height) * 0.022) : 0;
+    const lip = hasFrame ? Math.max(0.012, border * 0.22) : 0;
     
     const matWidth = mattingEnabled(this.options.matting, frameId) ? Math.max(0.08, Math.min(width, height) * 0.055) : 0;
     const artWidth = Math.max(0.2, width - matWidth * 2);
@@ -457,8 +510,6 @@ class ImageSlabViewer {
     
     const frontZ = depth / 2;
     const artZ = frontZ + 0.002;
-    const glassThickness = Math.max(0.055, Math.min(width, height) * 0.028);
-    const glassFrontZ = artZ + glassThickness;
 
     // Define horizontal and vertical wood materials for grain direction alignment
     const woodMaterialHoriz = this.frameMaterial(frameId, this.options.frameColor, this.woodTexture, false, false);
@@ -480,41 +531,6 @@ class ImageSlabViewer {
       normalScale: new THREE.Vector2(0.025, 0.025),
       envMapIntensity: this.surface === 'canvas' ? 0.15 : 0.08
     });
-    const glassPaneMaterial = new THREE.MeshPhysicalMaterial({
-      color: 0xffffff,
-      transparent: true,
-      opacity: 0.014,
-      roughness: 0.01,
-      metalness: 0,
-      transmission: 0,
-      thickness: glassThickness,
-      ior: 1.45,
-      clearcoat: 1,
-      clearcoatRoughness: 0.012,
-      envMapIntensity: 1.25,
-      depthWrite: false
-    });
-    const glassEdgeMaterial = new THREE.MeshPhysicalMaterial({
-      color: 0xeaf7ff,
-      transparent: true,
-      opacity: 0.2,
-      roughness: 0.02,
-      metalness: 0,
-      transmission: 0,
-      ior: 1.45,
-      clearcoat: 1,
-      clearcoatRoughness: 0.02,
-      envMapIntensity: 1.35,
-      depthWrite: false
-    });
-    const reflectionMaterial = new THREE.MeshBasicMaterial({
-      map: createGlassReflectionTexture(),
-      transparent: true,
-      opacity: 0.32,
-      depthWrite: false,
-      blending: THREE.NormalBlending
-    });
-
     if (hasFrame) {
       this.addRail(outerWidth, border, depth, 0, height / 2 + border / 2, woodMaterialHoriz);
       this.addRail(outerWidth, border, depth, 0, -height / 2 - border / 2, woodMaterialHoriz);
@@ -547,33 +563,6 @@ class ImageSlabViewer {
     artwork.receiveShadow = true;
     this.imageGroup.add(artwork);
 
-    const glassPane = new THREE.Mesh(new THREE.PlaneGeometry(artWidth, artHeight), glassPaneMaterial);
-    glassPane.position.z = glassFrontZ;
-    glassPane.renderOrder = 2;
-    this.imageGroup.add(glassPane);
-
-    const reflection = new THREE.Mesh(new THREE.PlaneGeometry(artWidth, artHeight), reflectionMaterial);
-    reflection.position.z = glassFrontZ + 0.001;
-    reflection.renderOrder = 3;
-    this.imageGroup.add(reflection);
-
-    const edgeBand = Math.max(0.009, Math.min(artWidth, artHeight) * 0.006);
-    const glassCenterZ = artZ + glassThickness / 2;
-    [
-      { w: artWidth, h: edgeBand, x: 0, y: artHeight / 2 - edgeBand / 2 },
-      { w: artWidth, h: edgeBand, x: 0, y: -artHeight / 2 + edgeBand / 2 },
-      { w: edgeBand, h: artHeight, x: -artWidth / 2 + edgeBand / 2, y: 0 },
-      { w: edgeBand, h: artHeight, x: artWidth / 2 - edgeBand / 2, y: 0 }
-    ].forEach((edge) => {
-      const glassEdge = new THREE.Mesh(
-        new THREE.BoxGeometry(edge.w, edge.h, glassThickness),
-        glassEdgeMaterial
-      );
-      glassEdge.position.set(edge.x, edge.y, glassCenterZ);
-      glassEdge.renderOrder = 4;
-      this.imageGroup.add(glassEdge);
-    });
-
     // MDF back panel
     const backPanel = new THREE.Mesh(
       new THREE.BoxGeometry(width + border * 1.8, height + border * 1.8, hasFrame ? 0.03 : 0.014),
@@ -590,7 +579,7 @@ class ImageSlabViewer {
       new THREE.MeshBasicMaterial({
         map: this.shadowTexture,
         transparent: true,
-        opacity: 0.42,
+        opacity: 0.16,
         depthWrite: false
       })
     );
@@ -619,6 +608,9 @@ class ImageSlabViewer {
     if (!url) return;
     this.options.frameId = normalizeFrameId(payload.frameId || this.options.frameId);
     this.options.frameColor = frameColorFor(this.options.frameId, payload.frameColor || this.options.frameColor);
+    this.options.frameTextureUrl = payload.frameTextureUrl || this.options.frameTextureUrl || '';
+    this.options.naturalFramePortraitUrl = payload.naturalFramePortraitUrl || this.options.naturalFramePortraitUrl || '';
+    this.options.naturalFrameLandscapeUrl = payload.naturalFrameLandscapeUrl || this.options.naturalFrameLandscapeUrl || '';
     this.options.matting = payload.matting || this.options.matting || 'none';
     this.options.printWidthCm = Number(payload.printWidthCm) || 0;
     this.options.printHeightCm = Number(payload.printHeightCm) || 0;
@@ -627,6 +619,9 @@ class ImageSlabViewer {
       url,
       this.options.frameId,
       this.options.frameColor,
+      this.options.frameTextureUrl,
+      this.options.naturalFramePortraitUrl,
+      this.options.naturalFrameLandscapeUrl,
       this.options.matting,
       this.options.printWidthCm,
       this.options.printHeightCm
