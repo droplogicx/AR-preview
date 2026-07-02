@@ -319,18 +319,19 @@
     }
     preloadFrameMockups();
 
-    function productOrientation() {
-      return getProductRatio() >= 1 ? 'portrait' : 'landscape';
+    function productOrientation(ratioOverride) {
+      var ratio = ratioOverride || getProductRatio();
+      return ratio >= 1 ? 'portrait' : 'landscape';
     }
 
     function usesFrameMockup() {
       return !!(FRAME_MOCKUPS[state.frameId]);
     }
 
-    function getFrameMockupConfig() {
+    function getFrameMockupConfig(ratioOverride) {
       if (!usesFrameMockup()) return null;
       var set = FRAME_MOCKUPS[state.frameId];
-      return set[productOrientation()] || set.portrait;
+      return set[productOrientation(ratioOverride)] || set.portrait;
     }
 
     function mockupMatPadding(mockup, hasMat, winW, winH) {
@@ -868,6 +869,81 @@
       return null;
     }
 
+    function imageCompareKey(url) {
+      url = toSecureUrl(url || '');
+      if (!url) return '';
+      var a = document.createElement('a');
+      a.href = url;
+      return a.pathname.toLowerCase().replace(/_(\d+x\d*|x\d+|pico|icon|thumb|small|compact|medium|large|grande|master)(?=\.[a-z0-9]+$)/, '');
+    }
+
+    function findProductImageByUrl(url) {
+      if (!url || !productData || !productData.images || !productData.images.length) return null;
+      var target = imageCompareKey(url);
+      if (!target) return null;
+      for (var i = 0; i < productData.images.length; i++) {
+        var image = productData.images[i];
+        if (imageCompareKey(image.src) === target || imageCompareKey(image.thumb) === target) return image;
+      }
+      return null;
+    }
+
+    function visibleImageScore(img) {
+      if (!img || !img.getBoundingClientRect) return 0;
+      if (img.closest('#ar-room, #ar-splash, #ar-root, .ar-product-cta')) return 0;
+      var style = window.getComputedStyle ? window.getComputedStyle(img) : null;
+      if (style && (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0')) return 0;
+      var rect = img.getBoundingClientRect();
+      if (rect.width < 40 || rect.height < 40) return 0;
+      var visibleW = Math.max(0, Math.min(rect.right, window.innerWidth) - Math.max(rect.left, 0));
+      var visibleH = Math.max(0, Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0));
+      return visibleW * visibleH;
+    }
+
+    function findVisibleProductImage() {
+      var selectors = [
+        '.product__main-photos img',
+        '[data-product-single-media-group] img',
+        'media-gallery img',
+        '[data-product-media-gallery] img',
+        '.product__media-wrapper img',
+        '.product-media-container img',
+        '.product__media-list img',
+        '.product-gallery img',
+        '.product-main-slide img',
+        '.product-image-main img',
+        '.product__modal-opener img',
+        '#ProductPhotoImg'
+      ];
+      var best = null;
+      var bestScore = 0;
+      document.querySelectorAll(selectors.join(',')).forEach(function (img) {
+        var score = visibleImageScore(img);
+        if (score > bestScore) {
+          bestScore = score;
+          best = img;
+        }
+      });
+      return best;
+    }
+
+    function syncVisibleProductImage() {
+      if (arImageSettings && arImageSettings.imageMode === 'specific') return false;
+      var visibleImg = findVisibleProductImage();
+      if (!visibleImg) return false;
+      var src = toSecureUrl(visibleImg.currentSrc || visibleImg.src || visibleImg.getAttribute('src'));
+      if (!src) return false;
+      var matched = findProductImageByUrl(src);
+      IMG = toSecureUrl((matched && matched.src) || src);
+      IMG_THUMB = toSecureUrl((matched && (matched.thumb || matched.src)) || src);
+      var width = (matched && matched.width) || visibleImg.naturalWidth || parseFloat(visibleImg.getAttribute('width') || '0');
+      var height = (matched && matched.height) || visibleImg.naturalHeight || parseFloat(visibleImg.getAttribute('height') || '0');
+      if (width > 0) IMG_W = width;
+      if (height > 0) IMG_H = height;
+      if (IMG_W > 0 && IMG_H > 0) productRatio = IMG_H / IMG_W;
+      return true;
+    }
+
     function refreshArImageFromSettings() {
       if (
         !arImageSettings ||
@@ -944,6 +1020,7 @@
         if (matched) applyVariantToState(matched);
       }
       refreshArImageFromSettings();
+      syncVisibleProductImage();
     }
 
     function applySyncedPreviewToModal() {
@@ -2247,10 +2324,10 @@
       return state.frameValue || frameById(state.frameId).label;
     }
 
-    function paintFramedArt(ctx, outerW, outerH, prodImg, scaleX, scaleY) {
-      var mockup = getFrameMockupConfig();
+    function paintFramedArt(ctx, outerW, outerH, prodImg, scaleX, scaleY, ratioOverride) {
+      var mockup = getFrameMockupConfig(ratioOverride);
       if (mockup) {
-        return paintFramedArtMockup(ctx, outerW, outerH, prodImg, scaleX, scaleY, mockup);
+        return paintFramedArtMockup(ctx, outerW, outerH, prodImg, scaleX, scaleY, mockup, ratioOverride);
       }
 
       var outerCm = outerSizeCm();
@@ -2284,7 +2361,7 @@
       var innerH = totalH - (frameSY + matSY) * 2;
       if (innerW <= 0 || innerH <= 0) return { totalW: totalW, totalH: totalH, matPx: matPx, framePx: framePx };
 
-      var imgRatio = getProductRatio();
+      var imgRatio = ratioOverride || getProductRatio();
       var drawW = innerW;
       var drawH = innerH;
       if (imgRatio > drawH / drawW) {
@@ -2298,7 +2375,7 @@
       return { totalW: totalW, totalH: totalH, matPx: matPx, framePx: framePx };
     }
 
-    function paintFramedArtMockup(ctx, outerW, outerH, prodImg, scaleX, scaleY, mockup) {
+    function paintFramedArtMockup(ctx, outerW, outerH, prodImg, scaleX, scaleY, mockup, ratioOverride) {
       var totalW = outerW * scaleX;
       var totalH = outerH * scaleY;
       var win = mockup.window;
@@ -2308,21 +2385,25 @@
       var wb = win.bottom * totalH;
       var winW = totalW - wl - wr;
       var winH = totalH - wt - wb;
+      var baseWinW = outerW * (1 - win.left - win.right);
+      var baseWinH = outerH * (1 - win.top - win.bottom);
       var hasMat = state.matting === '1';
-      var matPad = mockupMatPadding(mockup, hasMat, winW, winH);
+      var matPad = mockupMatPadding(mockup, hasMat, baseWinW, baseWinH);
+      var matPadX = matPad * scaleX;
+      var matPadY = matPad * scaleY;
 
       if (matPad > 0) {
         ctx.fillStyle = MAT_COLOR;
         ctx.fillRect(-totalW / 2 + wl, -totalH / 2 + wt, winW, winH);
       }
 
-      var boxW = winW - matPad * 2;
-      var boxH = winH - matPad * 2;
-      var boxX = -totalW / 2 + wl + matPad;
-      var boxY = -totalH / 2 + wt + matPad;
+      var boxW = winW - matPadX * 2;
+      var boxH = winH - matPadY * 2;
+      var boxX = -totalW / 2 + wl + matPadX;
+      var boxY = -totalH / 2 + wt + matPadY;
 
       if (boxW > 0 && boxH > 0 && prodImg && prodImg.naturalWidth) {
-        var imgRatio = getProductRatio();
+        var imgRatio = ratioOverride || getProductRatio();
         var dims = hasMat
           ? containDimensions(imgRatio, boxW, boxH)
           : coverDimensions(imgRatio, boxW, boxH);
@@ -2432,10 +2513,34 @@
         });
     }
 
-    function renderARCompositeDataUrl(prodImg) {
-      var imgRatio = getProductRatio();
-      var artW = 1024;
-      var artH = Math.round(artW * imgRatio);
+    function productRatioFromImage(img) {
+      if (img && img.naturalWidth > 0 && img.naturalHeight > 0) {
+        return img.naturalHeight / img.naturalWidth;
+      }
+      if (img && img.width > 0 && img.height > 0) {
+        return img.height / img.width;
+      }
+      return getProductRatio();
+    }
+
+    function framedPreviewAspect(ratioOverride) {
+      var mockup = getFrameMockupConfig(ratioOverride);
+      if (mockup) return frameMockupAspect(mockup);
+      var ratio = ratioOverride || getProductRatio();
+      return ratio > 0 ? 1 / ratio : 1;
+    }
+
+    function framedPreviewHeightRatio(ratioOverride) {
+      var aspect = framedPreviewAspect(ratioOverride);
+      return aspect > 0 ? 1 / aspect : (ratioOverride || getProductRatio());
+    }
+
+    function renderARCompositeDataUrl(prodImg, ratioOverride, previewSize) {
+      var imgRatio = ratioOverride || getProductRatio();
+      var baseSize = previewSize || productScale();
+      var scale = 1024 / Math.max(1, baseSize.w || 1);
+      var artW = Math.round((baseSize.w || 1024) * scale);
+      var artH = Math.round((baseSize.h || (1024 / framedPreviewAspect(imgRatio))) * scale);
 
       var canvas = document.createElement('canvas');
       canvas.width = artW;
@@ -2444,14 +2549,14 @@
 
       ctx.save();
       ctx.translate(artW / 2, artH / 2);
-      paintFramedArt(ctx, artW, artH, prodImg, 1, 1);
+      paintFramedArt(ctx, baseSize.w, baseSize.h, prodImg, scale, scale, imgRatio);
       ctx.restore();
 
       return canvas.toDataURL('image/png');
     }
 
-    function ensureFrameMockupLoaded() {
-      var mockup = getFrameMockupConfig();
+    function ensureFrameMockupLoaded(ratioOverride) {
+      var mockup = getFrameMockupConfig(ratioOverride);
       if (!mockup) return Promise.resolve();
       var cached = frameMockupCache[mockup.src];
       if (cached && cached.naturalWidth) return Promise.resolve();
@@ -2468,17 +2573,20 @@
     }
 
     function buildARProductImage() {
-      var dims = getARDimensions();
       var frame = frameById(state.frameId);
       if (!toSecureUrl(IMG)) {
         return Promise.reject(new Error('Product image is missing'));
       }
-      return ensureFrameMockupLoaded().then(function () {
-        return loadProductImageForCanvas().then(function (prodImg) {
+      return loadProductImageForCanvas().then(function (prodImg) {
+        var ratio = productRatioFromImage(prodImg);
+        if (ratio > 0) productRatio = ratio;
+        renderViewport();
+        var previewSize = productScale();
+        return ensureFrameMockupLoaded(ratio).then(function () {
           return {
-            image: renderARCompositeDataUrl(prodImg),
+            image: renderARCompositeDataUrl(prodImg, ratio, previewSize),
             frameColor: frame.id === 'none' ? '' : frame.color,
-            dims: dims
+            dims: getARDimensions(ratio, previewSize)
           };
         });
       });
@@ -2727,8 +2835,15 @@
       return launchAndroidWebXR(glbUrl);
     }
 
-    function getARDimensions() {
+    function getARDimensions(ratioOverride, previewSize) {
       var outer = outerSizeCm();
+      if (previewSize && previewSize.w > 0 && previewSize.h > 0 && outer.w > 0) {
+        return { w: outer.w, h: outer.w * (previewSize.h / previewSize.w) };
+      }
+      var heightRatio = framedPreviewHeightRatio(ratioOverride);
+      if (heightRatio > 0 && outer.w > 0) {
+        return { w: outer.w, h: outer.w * heightRatio };
+      }
       return { w: outer.w, h: outer.h };
     }
 
@@ -3204,12 +3319,12 @@
         splashMaxTimer = null;
       }
       hideSplash();
+      applySyncedPreviewToModal();
       requestAnimationFrame(function () {
         if (gen !== openGeneration) return;
         roomEl.classList.add('ar-open');
         requestAnimationFrame(function () {
           if (gen !== openGeneration) return;
-          applySyncedPreviewToModal();
           centerActiveThumb();
         });
       });
