@@ -40,7 +40,9 @@
   flex-direction: column;
   background: transparent;
   border-radius: inherit;
-  overflow: hidden;
+  overflow: visible;
+  pointer-events: auto;
+  touch-action: none;
 }
 
 .ps-3d-viewer-shell[hidden] {
@@ -54,6 +56,10 @@
   cursor: grab;
   touch-action: none;
   background: transparent;
+  pointer-events: auto;
+  width: 80%;
+  height: 80%;
+  margin: auto;
 }
 
 .ps-3d-canvas:active {
@@ -140,7 +146,7 @@
   height: var(--uib-stroke);
   width: var(--uib-size);
   border-radius: calc(var(--uib-stroke) / 2);
-  overflow: hidden;
+  overflow: visible;
   transform: translate3d(0, 0, 0);
 }
 

@@ -45,9 +45,19 @@
     white: root.dataset.swatchWhite || '',
     black: root.dataset.swatchBlack || ''
   };
-  var NATURAL_FRAME_REFERENCES = {
-    portrait: root.dataset.swatchNatural || '',
-    landscape: root.dataset.swatchNaturalLandscape || root.dataset.swatchNatural || ''
+  var FRAME_REFERENCES = {
+    'natural-timber': {
+      portrait: root.dataset.swatchNatural || '',
+      landscape: root.dataset.swatchNaturalLandscape || ''
+    },
+    white: {
+      portrait: root.dataset.swatchWhite || '',
+      landscape: root.dataset.swatchWhiteLandscape || ''
+    },
+    black: {
+      portrait: root.dataset.swatchBlack || '',
+      landscape: root.dataset.swatchBlackLandscape || ''
+    }
   };
 
   var HOST_SELECTORS = [
@@ -195,6 +205,11 @@
     return variant.options[meta.index] || '';
   }
 
+  function getOrientation(width, height) {
+    if (!width || !height) return 'portrait';
+    return width > height ? 'landscape' : 'portrait';
+  }
+
   function selectedVariantFramePayload() {
     var variant = selectedVariant();
     var size = parseSizeValue(variantValue(variant, VARIANT_META.size));
@@ -202,13 +217,17 @@
     var borderValue = variantValue(variant, VARIANT_META.border);
     var frameId = parseFrameId(frameValue);
     var matting = frameId === 'none' ? 'none' : parseBorderMat(borderValue);
+    
+    var orientation = getOrientation(size ? size.w : 0, size ? size.h : 0);
+    var frameRefs = FRAME_REFERENCES[frameId] || FRAME_REFERENCES['natural-timber'];
+    var frameTextureUrl = frameRefs[orientation] || frameRefs.portrait || '';
 
     return {
       frameId: frameId,
       frameColor: FRAME_COLORS[frameId] || FRAME_COLORS['natural-timber'],
-      frameTextureUrl: FRAME_SWATCH_IMAGES[frameId] || '',
-      naturalFramePortraitUrl: NATURAL_FRAME_REFERENCES.portrait,
-      naturalFrameLandscapeUrl: NATURAL_FRAME_REFERENCES.landscape,
+      frameTextureUrl: frameTextureUrl,
+      naturalFramePortraitUrl: frameRefs.portrait || '',
+      naturalFrameLandscapeUrl: frameRefs.landscape || '',
       frameValue: frameValue,
       matting: matting,
       borderValue: borderValue,
@@ -487,6 +506,20 @@
     ].join('');
     document.body.appendChild(shell);
     shell.querySelector('.ps-3d-close').addEventListener('click', closeViewer);
+    
+    var canvas = shell.querySelector('.ps-3d-canvas');
+    if (canvas) {
+      canvas.addEventListener('pointerup', function() {
+        if (viewerApi && viewerApi.releaseGrab) viewerApi.releaseGrab();
+      });
+      canvas.addEventListener('pointerleave', function() {
+        if (viewerApi && viewerApi.releaseGrab) viewerApi.releaseGrab();
+      });
+    }
+    
+    document.addEventListener('pointerup', function() {
+      if (viewerApi && viewerApi.releaseGrab) viewerApi.releaseGrab();
+    });
 
     return shell;
   }
@@ -625,7 +658,13 @@
             printWidthCm: payload.printWidthCm,
             printHeightCm: payload.printHeightCm,
             title: payload.alt,
-            onReady: markReady
+            onReady: markReady,
+            enableHover: true,
+            enableTilt: true,
+            frameRoughness: 0.8,
+            frameMetalness: 0.1,
+            frameTransmission: 0.0,
+            frameClearcoat: 0.0
           });
         } else if (viewerApi.updateImage) {
           viewerApi.updateImage(payload);

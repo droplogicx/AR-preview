@@ -341,6 +341,7 @@ class ImageSlabViewer {
   bindHoverTilt() {
     const canvas = this.renderer.domElement;
     this.onPointerMove = (event) => {
+      event.stopPropagation();
       if (!canvas || this.hoverOrbit.dragging) return;
       const rect = canvas.getBoundingClientRect();
       if (!rect.width || !rect.height) return;
@@ -358,11 +359,14 @@ class ImageSlabViewer {
       this.hoverOrbit.targetTheta = 0;
       this.hoverOrbit.targetPhi = Math.PI / 2;
     };
-    this.onPointerDown = () => {
+    this.onPointerDown = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
       this.hoverOrbit.dragging = true;
       this.hoverOrbit.active = false;
     };
-    this.onPointerUp = () => {
+    this.onPointerUp = (event) => {
+      if (event && event.stopPropagation) event.stopPropagation();
       this.hoverOrbit.dragging = false;
     };
 
