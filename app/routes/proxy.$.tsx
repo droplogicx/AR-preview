@@ -4,6 +4,7 @@ import { loader as arModelLoader, action as arModelAction } from "./api.ar-model
 import { loader as arModelFileLoader } from "./api.ar-model.file.$name";
 import { loader as arViewLoader } from "./ar.view";
 import { loader as arViewerSettingsLoader } from "./api.ar-viewer-settings";
+import { action as enhanceImageAction } from "./api.enhance-image";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -64,6 +65,10 @@ export async function action({
 
   if (subpath === "api/ar-model") {
     return arModelAction({ request });
+  }
+
+  if (subpath === "api/enhance-image") {
+    return enhanceImageAction({ request });
   }
 
   return new Response("Not found", { status: 404, headers: CORS });
