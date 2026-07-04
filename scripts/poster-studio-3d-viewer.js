@@ -2,10 +2,10 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 
-const MAX_SIDE_VIEW_ANGLE = THREE.MathUtils.degToRad(35);
+const MAX_SIDE_VIEW_ANGLE = THREE.MathUtils.degToRad(70);
 const MAX_VERTICAL_TILT_ANGLE = THREE.MathUtils.degToRad(20);
-const HOVER_SIDE_TILT_ANGLE = THREE.MathUtils.degToRad(10);
-const HOVER_VERTICAL_TILT_ANGLE = THREE.MathUtils.degToRad(8);
+const HOVER_SIDE_TILT_ANGLE = THREE.MathUtils.degToRad(70);
+const HOVER_VERTICAL_TILT_ANGLE = THREE.MathUtils.degToRad(20);
 const FRAME_COLORS = {
   none: 'transparent',
   'natural-timber': '#caa375',
@@ -316,10 +316,10 @@ class ImageSlabViewer {
     this.controls.enablePan = false;
     this.controls.minDistance = 3.5;
     this.controls.maxDistance = 8;
-    this.controls.minPolarAngle = Math.PI / 2 - MAX_VERTICAL_TILT_ANGLE;
-    this.controls.maxPolarAngle = Math.PI / 2 + MAX_VERTICAL_TILT_ANGLE;
-    this.controls.minAzimuthAngle = -MAX_SIDE_VIEW_ANGLE;
-    this.controls.maxAzimuthAngle = MAX_SIDE_VIEW_ANGLE;
+    this.controls.minPolarAngle = THREE.MathUtils.degToRad(30);
+    this.controls.maxPolarAngle = THREE.MathUtils.degToRad(150);
+    this.controls.minAzimuthAngle = -Infinity;
+    this.controls.maxAzimuthAngle = Infinity;
     this.controls.autoRotate = false;
     this.bindHoverTilt();
 
@@ -341,7 +341,6 @@ class ImageSlabViewer {
   bindHoverTilt() {
     const canvas = this.renderer.domElement;
     this.onPointerMove = (event) => {
-      event.stopPropagation();
       if (!canvas || this.hoverOrbit.dragging) return;
       const rect = canvas.getBoundingClientRect();
       if (!rect.width || !rect.height) return;
@@ -360,14 +359,12 @@ class ImageSlabViewer {
       this.hoverOrbit.targetPhi = Math.PI / 2;
     };
     this.onPointerDown = (event) => {
-      event.preventDefault();
-      event.stopPropagation();
       this.hoverOrbit.dragging = true;
       this.hoverOrbit.active = false;
     };
     this.onPointerUp = (event) => {
-      if (event && event.stopPropagation) event.stopPropagation();
       this.hoverOrbit.dragging = false;
+      this.hoverOrbit.active = true;
     };
 
     canvas.addEventListener('pointermove', this.onPointerMove);
@@ -709,16 +706,9 @@ class ImageSlabViewer {
     const offset = new THREE.Vector3().subVectors(this.camera.position, this.controls.target);
     const spherical = new THREE.Spherical().setFromVector3(offset);
 
-    spherical.theta = THREE.MathUtils.clamp(
-      THREE.MathUtils.euclideanModulo(spherical.theta + Math.PI, Math.PI * 2) - Math.PI,
-      -MAX_SIDE_VIEW_ANGLE,
-      MAX_SIDE_VIEW_ANGLE
-    );
-    spherical.phi = THREE.MathUtils.clamp(
-      spherical.phi,
-      Math.PI / 2 - MAX_VERTICAL_TILT_ANGLE,
-      Math.PI / 2 + MAX_VERTICAL_TILT_ANGLE
-    );
+    const minPhi = THREE.MathUtils.degToRad(30);
+    const maxPhi = THREE.MathUtils.degToRad(150);
+    spherical.phi = THREE.MathUtils.clamp(spherical.phi, minPhi, maxPhi);
 
     offset.setFromSpherical(spherical);
     this.camera.position.copy(this.controls.target).add(offset);
@@ -761,6 +751,11 @@ class ImageSlabViewer {
     this.clampCameraOrbit();
 
     this.renderer.render(this.scene, this.camera);
+  }
+
+  releaseGrab() {
+    this.hoverOrbit.dragging = false;
+    this.hoverOrbit.active = true;
   }
 
   pause() {

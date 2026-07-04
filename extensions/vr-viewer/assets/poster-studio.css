@@ -51,15 +51,28 @@
 
 .ps-3d-canvas {
   position: relative;
-  flex: 1 1 auto;
+  /* was `flex: 1 1 auto` — that let the box stretch to full height and,
+     with margin:auto, centred the poster vertically. We fix the box size
+     instead so we can place it high on the wall like the reference. */
+  flex: 0 0 auto;
   min-height: 0;
   cursor: grab;
   touch-action: none;
   background: transparent;
   pointer-events: auto;
-  width: 80%;
-  height: 80%;
-  margin: auto;
+
+  /* --- Poster size & placement on the wall ---
+     The 3D scene always centres the poster inside this box and fits it to
+     ~95% of the box, so THIS box controls how big the poster looks and
+     where it sits. Bigger width/height = bigger poster. The top margin
+     pushes it up onto the upper wall instead of the dead centre.
+     Tune these three numbers to taste: */
+  width: 92%;
+  /* poster width  (reference ≈ large) */
+  height: 74%;
+  /* poster height */
+  margin: 3% auto 0;
+  /* top gap | horizontal centre | (bottom) → anchors high */
 }
 
 .ps-3d-canvas:active {
@@ -174,6 +187,7 @@
 }
 
 @keyframes ps-3d-loader-wobble {
+
   0%,
   100% {
     transform: translateX(-95%);
@@ -220,5 +234,12 @@
   .ps-3d-close {
     height: 32px;
     padding: 0 10px;
+  }
+
+  /* Keep the same high placement on phones; nudge if it sits too high/low */
+  .ps-3d-canvas {
+    width: 94%;
+    height: 70%;
+    margin: 4% auto 0;
   }
 }
