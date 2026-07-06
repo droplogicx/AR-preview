@@ -11,6 +11,8 @@
   {% assign title = product.title | escape %}
   {% assign backend = '/apps/ar-preview' %}
 
+  {%- comment -%} Data holder only – the 3D viewer is injected over the theme's
+  main product image by poster-studio.js. {%- endcomment -%}
   <div id="ps-root"
     data-product-id="{{ product.id }}"
     data-title="{{ title }}"
