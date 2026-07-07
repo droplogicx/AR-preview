@@ -18,22 +18,34 @@
 .ps-overlay {
   position: absolute;
   inset: 0;
-  z-index: 3;
+  /* deliberately very high: some themes (zoom/lightbox icons, fancybox
+     triggers, etc.) use large z-index values of their own on elements
+     sharing this stacking area, and this overlay must always win so
+     hover/drag actually reach it instead of the theme's own controls */
+  z-index: 2147483000;
   display: block;
   border-radius: inherit;
   overflow: hidden;
   background: transparent;
   /* let the artwork breathe like the reference wall view */
-  pointer-events: none; /* children opt back in */
+  pointer-events: none;
+  /* children opt back in */
 }
 
 .ps-canvas {
   position: absolute;
   inset: 0;
   cursor: grab;
-  touch-action: none;
+  touch-action: none !important;
   background: transparent;
-  pointer-events: auto;
+  -webkit-user-select: none;
+  user-select: none;
+  /* !important defeats any broad theme rule like ".image-wrap * { pointer-
+     events: none }" (a common pattern to let clicks pass through wrapper
+     elements) that could otherwise silently disable hover/drag on this
+     canvas specifically, while never affecting the idle auto-tilt (which
+     doesn't depend on pointer events at all) */
+  pointer-events: auto !important;
 }
 
 .ps-canvas:active,
@@ -45,7 +57,7 @@
   display: block;
   width: 100% !important;
   height: 100% !important;
-  touch-action: none;
+  touch-action: none !important;
 }
 
 /* --------------------------------------------------------------- toolbar */
@@ -60,7 +72,7 @@
 }
 
 .ps-toolbar button {
-  pointer-events: auto;
+  pointer-events: auto !important;
 }
 
 .ps-reset {
@@ -75,6 +87,7 @@
   cursor: pointer;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
   transition: transform 120ms ease, background 120ms ease;
+  display: none !important;
 }
 
 .ps-reset:hover,
@@ -86,6 +99,7 @@
 
 /* --------------------------------------------------------------- hint */
 .ps-hint {
+  opacity: 0 !important;
   position: absolute;
   bottom: 14px;
   left: 50%;
@@ -200,8 +214,15 @@
 }
 
 @keyframes ps-loader-wobble {
-  0%, 100% { transform: translateX(-95%); }
-  50%      { transform: translateX(95%); }
+
+  0%,
+  100% {
+    transform: translateX(-95%);
+  }
+
+  50% {
+    transform: translateX(95%);
+  }
 }
 
 /* --------------------------------------------------------------- error */
@@ -226,7 +247,19 @@
 }
 
 @media (max-width: 749px) {
-  .ps-toolbar { top: 9px; left: 9px; }
-  .ps-reset  { height: 32px; min-width: 32px; font-size: 16px; }
-  .ps-hint   { bottom: 10px; font-size: 11px; }
+  .ps-toolbar {
+    top: 9px;
+    left: 9px;
+  }
+
+  .ps-reset {
+    height: 32px;
+    min-width: 32px;
+    font-size: 16px;
+  }
+
+  .ps-hint {
+    bottom: 10px;
+    font-size: 11px;
+  }
 }
