@@ -13,6 +13,103 @@ const FRAME_COLORS = {
   black: '#1a1a1a'
 };
 
+// Frame mockups — same assets and insets as ar-viewer.js / poster-studio.liquid.
+const FRAME_MOCKUPS = {
+  'natural-timber': {
+    portrait: {
+      width: 360,
+      height: 500,
+      window: { top: 0.018, left: 0.0278, right: 0.0278, bottom: 0.02 },
+      matPct: 0.052
+    },
+    landscape: {
+      width: 400,
+      height: 291,
+      window: { top: 0.0378, left: 0.0275, right: 0.0275, bottom: 0.0412 },
+      matPct: 0.052,
+      // Shrink only the frame rails; artwork size stays the same.
+      railScale: 0.68
+    }
+  },
+  white: {
+    portrait: {
+      width: 355,
+      height: 500,
+      window: { top: 0.018, left: 0.0254, right: 0.0254, bottom: 0.018 },
+      matPct: 0.045
+    },
+    landscape: {
+      width: 400,
+      height: 284,
+      window: { top: 0.0246, left: 0.0175, right: 0.0175, bottom: 0.0246 },
+      matPct: 0.045
+    }
+  },
+  black: {
+    portrait: {
+      width: 355,
+      height: 500,
+      window: { top: 0.018, left: 0.0254, right: 0.0254, bottom: 0.018 },
+      matPct: 0.045
+    },
+    landscape: {
+      width: 400,
+      height: 284,
+      window: { top: 0.0246, left: 0.0175, right: 0.0175, bottom: 0.0246 },
+      matPct: 0.045
+    }
+  }
+};
+
+const ART_BLEED = 1.008;
+
+function frameOrientation(printW, printH) {
+  return printW >= printH ? 'landscape' : 'portrait';
+}
+
+function frameMockupConfig(frameId, printW, printH) {
+  const set = FRAME_MOCKUPS[normalizeFrameId(frameId)] || FRAME_MOCKUPS['natural-timber'];
+  return set[frameOrientation(printW, printH)] || set.portrait;
+}
+
+function computeFrameLayout(printW, printH, mockup, hasBorder) {
+  const win = mockup.window;
+  const innerFracW = 1 - win.left - win.right;
+  const innerFracH = 1 - win.top - win.bottom;
+
+  // Scale mockup pixel dimensions uniformly so the PNG is never stretched.
+  const mockupInnerW = mockup.width * innerFracW;
+  const mockupInnerH = mockup.height * innerFracH;
+  const scale = Math.max(printW / mockupInnerW, printH / mockupInnerH, 0.001);
+  const outerW = mockup.width * scale;
+  const outerH = mockup.height * scale;
+
+  const winW = outerW * innerFracW;
+  const winH = outerH * innerFracH;
+  const matPad = hasBorder ? Math.max(0.06, Math.min(winW, winH) * mockup.matPct) : 0;
+
+  const fillW = winW;
+  const fillH = winH;
+  const artW = (hasBorder ? Math.max(0.2, fillW - matPad * 2) : fillW) * ART_BLEED;
+  const artH = (hasBorder ? Math.max(0.2, fillH - matPad * 2) : fillH) * ART_BLEED;
+
+  const railScale = mockup.railScale ?? 1;
+  const displayOuterW = winW + (outerW - winW) * railScale;
+  const displayOuterH = winH + (outerH - winH) * railScale;
+
+  return {
+    outerW: displayOuterW,
+    outerH: displayOuterH,
+    winW,
+    winH,
+    artW,
+    artH,
+    matPad,
+    fillW,
+    fillH
+  };
+}
+
 function normalizeFrameId(frameId) {
   const id = String(frameId || '').toLowerCase().trim();
   if (!id || id === 'none' || id.includes('unfram')) return 'none';
@@ -396,8 +493,13 @@ class ImageSlabViewer {
     const textureAspect = texture && texture.image && texture.image.width && texture.image.height
       ? texture.image.width / texture.image.height
       : ((payload && payload.width ? payload.width : 1) / (payload && payload.height ? payload.height : 1));
-    const printW = Number(payload && payload.printWidthCm) || 0;
-    const printH = Number(payload && payload.printHeightCm) || 0;
+    let printW = Number(payload && payload.printWidthCm) || 0;
+    let printH = Number(payload && payload.printHeightCm) || 0;
+    if (printW > 0 && printH > 0 && (textureAspect > 1) !== (printW > printH)) {
+      const temp = printW;
+      printW = printH;
+      printH = temp;
+    }
     const aspect = printW > 0 && printH > 0 ? printW / printH : textureAspect;
     const height = aspect >= 1 ? 2.3 / aspect : 2.65;
     return { width: height * aspect, height, aspect, textureAspect };
@@ -423,6 +525,78 @@ class ImageSlabViewer {
       texture.offset.y = (1 - repeatY) / 2;
     }
     texture.needsUpdate = true;
+  }
+
+  configureContainTexture(texture, targetAspect) {
+    const image = texture && texture.image;
+    if (!image || !image.width || !image.height || !targetAspect) return;
+
+    const sourceAspect = image.width / image.height;
+    texture.wrapS = THREE.ClampToEdgeWrapping;
+    texture.wrapT = THREE.ClampToEdgeWrapping;
+    texture.repeat.set(1, 1);
+    texture.offset.set(0, 0);
+
+    if (sourceAspect > targetAspect) {
+      const repeatY = sourceAspect / targetAspect;
+      texture.repeat.y = repeatY;
+      texture.offset.y = (1 - repeatY) / 2;
+    } else if (sourceAspect < targetAspect) {
+      const repeatX = targetAspect / sourceAspect;
+      texture.repeat.x = repeatX;
+      texture.offset.x = (1 - repeatX) / 2;
+    }
+    texture.needsUpdate = true;
+  }
+
+  loadFrameSwatch(url, onLoad) {
+    if (!url) return null;
+
+    const cacheKey = `fsfull|${url}`;
+    if (this.frameTextureCache.has(cacheKey)) {
+      const cached = this.frameTextureCache.get(cacheKey);
+      if (cached.userData && cached.userData.loaded) {
+        if (typeof onLoad === 'function') onLoad(cached);
+      } else if (typeof onLoad === 'function' && cached.userData && cached.userData.loadCallbacks) {
+        cached.userData.loadCallbacks.push(onLoad);
+      }
+      return cached;
+    }
+
+    const texture = this.textureLoader.load(
+      url,
+      () => {
+        texture.userData.loaded = true;
+        texture.needsUpdate = true;
+        texture.userData.loadCallbacks.splice(0).forEach((callback) => callback(texture));
+        this.animate();
+      },
+      undefined,
+      () => this.animate()
+    );
+    texture.userData.loaded = false;
+    texture.userData.loadCallbacks = typeof onLoad === 'function' ? [onLoad] : [];
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.wrapS = THREE.ClampToEdgeWrapping;
+    texture.wrapT = THREE.ClampToEdgeWrapping;
+    texture.anisotropy = Math.min(16, this.renderer.capabilities.getMaxAnisotropy());
+    this.frameTextureCache.set(cacheKey, texture);
+    return texture;
+  }
+
+  resolveSwatchUrl(printW, printH) {
+    const ori = frameOrientation(printW, printH);
+    const portrait = this.options.naturalFramePortraitUrl || '';
+    const landscape = this.options.naturalFrameLandscapeUrl || portrait;
+    const payloadUrl = this.options.frameTextureUrl || '';
+
+    // Match the frame PNG to the 3D slab orientation (image aspect), not only
+    // the size-variant label — otherwise a portrait swatch gets stretched on a
+    // landscape slab and the top/bottom rails look too thin.
+    if (ori === 'landscape') {
+      return landscape || payloadUrl || portrait;
+    }
+    return portrait || payloadUrl || landscape;
   }
 
   naturalFrameStripTexture(vertical = false, onLoad) {
@@ -497,105 +671,161 @@ class ImageSlabViewer {
 
     const frameId = normalizeFrameId(this.options.frameId);
     const hasFrame = frameId !== 'none';
-    // Slim frame depth so side views do not overpower the artwork.
-    const depth = hasFrame ? Math.max(0.02, Math.min(width, height) * 0.01) : Math.max(0.012, Math.min(width, height) * 0.006);
-    const border = hasFrame ? Math.max(0.045, Math.min(width, height) * 0.022) : 0;
-    const lip = hasFrame ? Math.max(0.012, border * 0.22) : 0;
-    
-    const matWidth = mattingEnabled(this.options.matting, frameId) ? Math.max(0.08, Math.min(width, height) * 0.055) : 0;
-    const artWidth = Math.max(0.2, width - matWidth * 2);
-    const artHeight = Math.max(0.2, height - matWidth * 2);
-    const outerWidth = width + border * 2;
-    const outerHeight = height + border * 2;
-    this.configureCoverTexture(texture, artWidth / artHeight);
-    
+    const hasBorder = mattingEnabled(this.options.matting, frameId);
+
+    if (!hasFrame) {
+      this.configureCoverTexture(texture, width / height);
+
+      const minSide = Math.min(width, height);
+      const depth = Math.min(Math.max(minSide * 0.035, 0.035), minSide * 0.06);
+      const paperMat = new THREE.MeshStandardMaterial({ color: 0xf7f4ec, roughness: 0.92, metalness: 0 });
+      paperMat.side = THREE.DoubleSide;
+      const artMat = new THREE.MeshStandardMaterial({ map: texture, color: 0xffffff });
+      artMat.side = THREE.DoubleSide;
+      const box = new THREE.Mesh(
+        new THREE.BoxGeometry(width, height, depth),
+        [paperMat, paperMat, paperMat, paperMat, artMat, paperMat]
+      );
+      box.castShadow = true;
+      box.receiveShadow = true;
+      this.imageGroup.add(box);
+
+      const shadow = new THREE.Mesh(
+        new THREE.PlaneGeometry(width * 1.35, width * 1.35),
+        new THREE.MeshBasicMaterial({
+          map: this.shadowTexture,
+          transparent: true,
+          opacity: 0.16,
+          depthWrite: false
+        })
+      );
+      shadow.rotation.x = -Math.PI / 2;
+      shadow.position.set(0, -height / 2 - 0.04, -0.02);
+      this.imageGroup.add(shadow);
+
+      this.imageGroup.userData.printSize = { width, height, depth, outerWidth: width, outerHeight: height };
+      this.fitCameraToSlab(width, height, 1.28);
+      return;
+    }
+
+    const mockup = frameMockupConfig(frameId, width, height);
+    const layout = computeFrameLayout(width, height, mockup, hasBorder);
+    const {
+      outerW, outerH, winW, winH, artW, artH, matPad, fillW, fillH
+    } = layout;
+
+    this.configureCoverTexture(texture, artW / artH);
+
+    const printW = Number(this.options.printWidthCm) || 0;
+    const minSide = Math.min(outerW, outerH);
+    const depth = printW > 0
+      ? Math.min(Math.max((1 / printW) * outerW, minSide * 0.035), minSide * 0.055)
+      : minSide * 0.045;
+
+    const sideColors = {
+      'natural-timber': 0xc9a877,
+      white: 0xf0ece0,
+      black: 0x161616
+    };
+    const frameColor = Object.prototype.hasOwnProperty.call(sideColors, frameId)
+      ? sideColors[frameId]
+      : sideColors['natural-timber'];
+    const isWood = frameId === 'natural-timber';
     const frontZ = depth / 2;
-    const artZ = frontZ + 0.002;
 
-    // Define horizontal and vertical wood materials for grain direction alignment
-    const woodMaterialHoriz = this.frameMaterial(frameId, this.options.frameColor, this.woodTexture, false, false);
-    const woodMaterialVert = this.frameMaterial(frameId, this.options.frameColor, this.woodTexture, true, false);
-    const bevelMaterialHoriz = this.frameMaterial(frameId, this.options.frameColor, this.woodTexture, false, true);
-    const bevelMaterialVert = this.frameMaterial(frameId, this.options.frameColor, this.woodTexture, true, true);
-    const backMaterial = new THREE.MeshStandardMaterial({
-      color: 0x8a725d, // warm brown MDF finish
+    const sideMat = new THREE.MeshStandardMaterial({
+      color: frameColor,
+      roughness: isWood ? 0.62 : 0.4,
+      metalness: 0.05
+    });
+    sideMat.side = THREE.DoubleSide;
+
+    const backMat = new THREE.MeshStandardMaterial({
+      color: isWood ? 0x8a725d : frameColor,
       roughness: 0.85,
-      metalness: 0,
-      envMapIntensity: 0.5
+      metalness: 0
     });
-    const frontMaterial = new THREE.MeshStandardMaterial({
-      map: texture,
+    backMat.side = THREE.DoubleSide;
+
+    const swatchUrl = this.resolveSwatchUrl(width, height);
+    const frameOverlayMat = new THREE.MeshBasicMaterial({
       color: 0xffffff,
-      roughness: this.surface === 'canvas' ? 0.6 : 0.34,
-      metalness: 0,
-      normalMap: this.surface === 'canvas' ? this.canvasNormalTexture : null,
-      normalScale: new THREE.Vector2(0.025, 0.025),
-      envMapIntensity: this.surface === 'canvas' ? 0.15 : 0.08
+      transparent: true,
+      depthWrite: false,
+      depthTest: true,
+      alphaTest: 0.02
     });
-    if (hasFrame) {
-      this.addRail(outerWidth, border, depth, 0, height / 2 + border / 2, woodMaterialHoriz);
-      this.addRail(outerWidth, border, depth, 0, -height / 2 - border / 2, woodMaterialHoriz);
-      this.addRail(border, height, depth, -width / 2 - border / 2, 0, woodMaterialVert);
-      this.addRail(border, height, depth, width / 2 + border / 2, 0, woodMaterialVert);
 
-      const bevelZ = frontZ - 0.006;
-      const bevelAngle = Math.atan2(0.006, lip);
-      this.addBevel(width + lip * 2, lip, 0, height / 2 + lip / 2, bevelZ, { x: -bevelAngle }, bevelMaterialHoriz);
-      this.addBevel(width + lip * 2, lip, 0, -height / 2 - lip / 2, bevelZ, { x: bevelAngle }, bevelMaterialHoriz);
-      this.addBevel(lip, height, -width / 2 - lip / 2, 0, bevelZ, { y: bevelAngle }, bevelMaterialVert);
-      this.addBevel(lip, height, width / 2 + lip / 2, 0, bevelZ, { y: -bevelAngle }, bevelMaterialVert);
-    }
-
-    if (matWidth > 0) {
-      const matMaterial = new THREE.MeshStandardMaterial({
-        color: 0xf2f0eb,
-        roughness: 0.74,
-        metalness: 0
+    if (swatchUrl) {
+      this.loadFrameSwatch(swatchUrl, (loadedTexture) => {
+        frameOverlayMat.map = loadedTexture;
+        frameOverlayMat.needsUpdate = true;
+        this.animate();
       });
-      this.addRail(width, matWidth, 0.012, 0, height / 2 - matWidth / 2, matMaterial).position.z = artZ + 0.002;
-      this.addRail(width, matWidth, 0.012, 0, -height / 2 + matWidth / 2, matMaterial).position.z = artZ + 0.002;
-      this.addRail(matWidth, artHeight, 0.012, -width / 2 + matWidth / 2, 0, matMaterial).position.z = artZ + 0.002;
-      this.addRail(matWidth, artHeight, 0.012, width / 2 - matWidth / 2, 0, matMaterial).position.z = artZ + 0.002;
     }
 
-    // Artwork plane
-    const artwork = new THREE.Mesh(new THREE.PlaneGeometry(artWidth, artHeight), frontMaterial);
-    artwork.position.z = artZ;
-    artwork.receiveShadow = true;
+    // Invisible front — only the frame PNG overlay draws the front face.
+    const bodyFrontMat = new THREE.MeshBasicMaterial({
+      transparent: true,
+      opacity: 0,
+      depthWrite: false
+    });
+
+    const frameBody = new THREE.Mesh(
+      new THREE.BoxGeometry(outerW, outerH, depth),
+      [sideMat, sideMat, sideMat, sideMat, bodyFrontMat, backMat]
+    );
+    frameBody.castShadow = true;
+    frameBody.receiveShadow = true;
+    this.imageGroup.add(frameBody);
+
+    if (matPad > 0) {
+      const matMaterial = new THREE.MeshBasicMaterial({ color: 0xf2f0eb, depthWrite: true });
+      const matPlane = new THREE.Mesh(new THREE.PlaneGeometry(fillW, fillH), matMaterial);
+      matPlane.position.z = frontZ - 0.001;
+      this.imageGroup.add(matPlane);
+    }
+
+    const artMat = new THREE.MeshBasicMaterial({ map: texture, color: 0xffffff, depthWrite: true });
+    const artwork = new THREE.Mesh(new THREE.PlaneGeometry(artW, artH), artMat);
+    artwork.position.z = frontZ;
+    artwork.renderOrder = 1;
     this.imageGroup.add(artwork);
 
-    // MDF back panel
-    const backPanel = new THREE.Mesh(
-      new THREE.BoxGeometry(width + border * 1.8, height + border * 1.8, hasFrame ? 0.03 : 0.014),
-      hasFrame ? backMaterial : new THREE.MeshStandardMaterial({ color: 0xf7f7f4, roughness: 0.72, metalness: 0 })
-    );
-    backPanel.position.z = -frontZ - 0.005;
-    backPanel.castShadow = true;
-    backPanel.receiveShadow = true;
-    this.imageGroup.add(backPanel);
+    const frameOverlay = new THREE.Mesh(new THREE.PlaneGeometry(outerW, outerH), frameOverlayMat);
+    frameOverlay.position.z = frontZ + 0.002;
+    frameOverlay.renderOrder = 10;
+    this.imageGroup.add(frameOverlay);
 
-    // Contact shadow plane beneath the frame
     const shadow = new THREE.Mesh(
-      new THREE.PlaneGeometry(outerWidth * 1.35, outerWidth * 1.35),
+      new THREE.PlaneGeometry(outerW * 1.35, outerW * 1.35),
       new THREE.MeshBasicMaterial({
         map: this.shadowTexture,
         transparent: true,
-        opacity: 0.16,
+        opacity: 0.18,
         depthWrite: false
       })
     );
     shadow.rotation.x = -Math.PI / 2;
-    shadow.position.set(0, -outerHeight / 2 - 0.04, -0.02);
+    shadow.position.set(0, -outerH / 2 - 0.04, -0.02);
     this.imageGroup.add(shadow);
 
-    this.imageGroup.userData.printSize = { width, height, depth, outerWidth, outerHeight };
+    this.imageGroup.userData.printSize = {
+      width,
+      height,
+      depth,
+      outerWidth: outerW,
+      outerHeight: outerH
+    };
+    this.fitCameraToSlab(outerW, outerH, 1.28);
+  }
 
-    // Fit close to the source product image so 3D mode keeps the same visual size.
+  fitCameraToSlab(outerWidth, outerHeight, zoomFactor = 1) {
     const fovRad = THREE.MathUtils.degToRad(this.camera.fov / 2);
     const tanFov = Math.tan(fovRad);
     const zHeight = outerHeight / (1.95 * tanFov);
     const zWidth = outerWidth / (1.95 * tanFov * (this.camera.aspect || 1));
-    const targetZ = Math.max(zHeight, zWidth);
+    const targetZ = Math.max(zHeight, zWidth) * zoomFactor;
 
     this.camera.position.set(0, 0, targetZ);
     this.controls.target.set(0, 0, 0);
