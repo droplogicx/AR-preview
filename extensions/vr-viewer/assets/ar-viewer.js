@@ -17,6 +17,15 @@
     return base || '/apps/ar-preview';
   }
 
+  function hasVrHiddenTag() {
+    var raw = root.dataset.tags || '';
+    var tags = raw.split(',');
+    for (var i = 0; i < tags.length; i++) {
+      if (tags[i].trim().toLowerCase() === 'ar_hide') return true;
+    }
+    return false;
+  }
+
   var backendPreview = getAppProxyBase();
   var productId = root.dataset.productId || '';
   var arImageSettings = {
@@ -3450,6 +3459,13 @@
     )
       .then(function (res) { return res.ok ? res.json() : { enabled: true }; })
       .then(function (data) {
+        // Even if the app proxy reports View in Room as enabled for this
+        // product, the ar_hide tag is a hard override: never show the
+        // viewer on tagged products, regardless of the API permission.
+        if (hasVrHiddenTag()) {
+          removeArViewerDom();
+          return;
+        }
         if (data && data.enabled === false) {
           removeArViewerDom();
           return;
@@ -3468,9 +3484,19 @@
         }
         continueInit();
       })
-      .catch(function () { continueInit(); });
+      .catch(function () {
+        if (hasVrHiddenTag()) {
+          removeArViewerDom();
+          return;
+        }
+        continueInit();
+      });
   } else {
-    continueInit();
+    if (hasVrHiddenTag()) {
+      removeArViewerDom();
+    } else {
+      continueInit();
+    }
   }
 
 })();

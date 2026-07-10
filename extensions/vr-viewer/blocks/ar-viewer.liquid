@@ -13,6 +13,7 @@
 
   <div id="ar-root"
     data-product-id="{{ product.id }}"
+    data-tags="{{ product.tags | join: ',' | escape }}"
     data-title="{{ title }}"
     data-img="{{ img }}"
     data-img-thumb="{{ img_thumb }}"

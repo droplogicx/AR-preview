@@ -260,9 +260,22 @@
   function currentPayload() {
     var url, w, h, alt;
 
-    // Prefer the image the theme is actually showing (WYSIWYG); fall back to
-    // the selected variant image, then the product featured image.
-    if (primaryImage && imageSrc(primaryImage)) {
+    // When /api/settings pins a specific framed image, prefer that URL for the
+    // 3D texture (same as AR Viewer), while still overlaying on the matched DOM img.
+    var eligible = settingsEligibleImage();
+    if (eligible && eligible.src) {
+      url = eligible.src;
+      w = eligible.width || 0;
+      h = eligible.height || 0;
+      alt = eligible.alt || productTitle;
+      if ((!w || !h) && primaryImage) {
+        var er = primaryImage.getBoundingClientRect();
+        w = w || primaryImage.naturalWidth || Math.round(er.width) || 1;
+        h = h || primaryImage.naturalHeight || Math.round(er.height) || 1;
+      }
+    } else if (primaryImage && imageSrc(primaryImage)) {
+      // Prefer the image the theme is actually showing (WYSIWYG); fall back to
+      // the selected variant image, then the product featured image.
       var rect = primaryImage.getBoundingClientRect();
       url = imageSrc(primaryImage);
       w = primaryImage.naturalWidth || Math.round(rect.width) || 1;
@@ -301,34 +314,103 @@
 
   /* ================================================= image / cell discovery */
 
-  /* Strip Shopify's CDN transform params (?v=..., &width=, &crop=, etc.) so a
-   * theme-rendered <img src> (often resized/cropped differently than the
-   * settings payload's imageUrl) can still be compared reliably. */
+  /* Match Shopify CDN URLs the same way AR Viewer does — strip query params
+   * and size suffixes (_2048x, _large, etc.) so theme <img src> still matches
+   * the settings API imageUrl. */
+  function imageCompareKey(url) {
+    url = toSecureUrl(url || '');
+    if (!url) return '';
+    try {
+      var a = document.createElement('a');
+      a.href = url;
+      return a.pathname.toLowerCase().replace(
+        /_(\d+x\d*|x\d+|pico|icon|thumb|small|compact|medium|large|grande|master)(?=\.[a-z0-9]+$)/,
+        ''
+      );
+    } catch (e) {
+      var qIdx = url.indexOf('?');
+      return (qIdx === -1 ? url : url.slice(0, qIdx)).toLowerCase();
+    }
+  }
+
   function normalizeImgUrlForMatch(u) {
-    u = toSecureUrl(u);
-    if (!u) return '';
-    var qIdx = u.indexOf('?');
-    return qIdx === -1 ? u : u.slice(0, qIdx);
+    return imageCompareKey(u);
   }
 
   /* settingsData.imageAlt is a comma-separated list of keywords (e.g.
-   * "frame,framed"); the theme's <img alt> only needs to contain one. */
+   * "frame,framed") — same rules as the proxy resolveArImageByAlt helper. */
   function altMatchesKeywords(altText, keywordCsv) {
-    var alt = String(altText || '').toLowerCase().trim();
+    var alt = String(altText || '').trim().toLowerCase();
     if (!alt || !keywordCsv) return false;
-    var keywords = String(keywordCsv).split(',');
+    var keywords = String(keywordCsv).split(',')
+      .map(function (k) { return k.trim().toLowerCase(); })
+      .filter(Boolean);
+    if (!keywords.length) return false;
+
+    if (keywords.indexOf(alt) !== -1) return true;
+
+    var altTokens = alt.split(',')
+      .map(function (k) { return k.trim().toLowerCase(); })
+      .filter(Boolean);
     for (var i = 0; i < keywords.length; i++) {
-      var kw = keywords[i].trim().toLowerCase();
-      if (kw && alt.indexOf(kw) !== -1) return true;
+      var kw = keywords[i];
+      if (altTokens.indexOf(kw) !== -1) return true;
+      if (alt.indexOf(kw) !== -1) return true;
     }
     return false;
   }
 
+  function findProductDataImageByAlt(keywordCsv) {
+    if (!keywordCsv || !productData || !productData.images || !productData.images.length) return null;
+    for (var i = 0; i < productData.images.length; i++) {
+      var image = productData.images[i];
+      if (altMatchesKeywords(image.alt, keywordCsv)) return image;
+    }
+    return null;
+  }
+
+  function findProductDataImageByUrl(url) {
+    if (!url || !productData || !productData.images || !productData.images.length) return null;
+    var target = imageCompareKey(url);
+    if (!target) return null;
+    for (var i = 0; i < productData.images.length; i++) {
+      var image = productData.images[i];
+      if (imageCompareKey(image.src) === target || imageCompareKey(image.thumb) === target) {
+        return image;
+      }
+    }
+    return null;
+  }
+
+  /* Eligible framed image from /api/settings (same source as AR Viewer). */
+  function settingsEligibleImage() {
+    if (!settingsData || settingsData.imageMode !== 'specific') return null;
+    var matched = findProductDataImageByAlt(settingsData.imageAlt);
+    if (matched && matched.src) return matched;
+    if (settingsData.imageUrl) {
+      return {
+        src: settingsData.imageUrl,
+        thumb: settingsData.imageThumb || settingsData.imageUrl,
+        alt: settingsData.imageAlt || '',
+        width: 0,
+        height: 0
+      };
+    }
+    return null;
+  }
+
   /* Only restrict which image we cover when the backend explicitly says so
-   * (imageMode === "specific"). Keywords come from backend settings (imageAlt field).
-   * If settings are missing or mode is not specific, allow all images. */
+   * (imageMode === "specific"). Keywords / imageUrl come from /api/settings. */
   function imageAllowedBySettings(img) {
     if (!settingsData || settingsData.imageMode !== 'specific') return true;
+
+    var eligible = settingsEligibleImage();
+    if (eligible && eligible.src) {
+      if (imageCompareKey(imageSrc(img)) === imageCompareKey(eligible.src)) return true;
+      if (eligible.thumb && imageCompareKey(imageSrc(img)) === imageCompareKey(eligible.thumb)) {
+        return true;
+      }
+    }
 
     var targetUrl = normalizeImgUrlForMatch(settingsData.imageUrl);
     if (targetUrl && normalizeImgUrlForMatch(imageSrc(img)) === targetUrl) return true;
@@ -971,17 +1053,30 @@
   }
 
   /* Respect an app "enabled: false" setting if the backend answers; never
-   * block on it. */
+   * block on it. Same proxy endpoint as AR Viewer:
+   *   GET /apps/ar-preview/api/settings?product_id=…  */
   if (productId && backendBase) {
     var settled = false;
+    var shopDomain = root.dataset.shop || '';
     var go = function (data) {
       if (settled) return; settled = true;
-      settingsData = data || null;
+      settingsData = data ? {
+        enabled: data.enabled !== false,
+        imageMode: data.imageMode || 'default',
+        imageAlt: data.imageAlt || '',
+        imageUrl: data.imageUrl || '',
+        imageThumb: data.imageThumb || ''
+      } : null;
       if (data && data.enabled === false) { teardown(); return; }
+      if (settingsData && settingsData.imageUrl) {
+        root.dataset.img = settingsData.imageUrl;
+        root.dataset.imgThumb = settingsData.imageThumb || settingsData.imageUrl;
+      }
       boot();
     };
-    fetch(backendBase + '/api/settings?product_id=' + encodeURIComponent(productId),
-      { credentials: 'same-origin' })
+    var settingsUrl = backendBase + '/api/settings?product_id=' + encodeURIComponent(productId);
+    if (shopDomain) settingsUrl += '&shop=' + encodeURIComponent(shopDomain);
+    fetch(settingsUrl, { credentials: 'same-origin' })
       .then(function (r) { return r.ok ? r.json() : { enabled: true }; })
       .then(go)
       .catch(function () { go({ enabled: true }); });

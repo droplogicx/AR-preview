@@ -34,7 +34,23 @@ export async function loader({
   const subpath = (params["*"] || "").replace(/^\//, "");
 
   if (subpath === "api/settings") {
-    return arViewerSettingsLoader({ request });
+    try {
+      return await arViewerSettingsLoader({ request });
+    } catch {
+      // Keep storefront previews alive if settings resolution throws.
+      return Response.json(
+        {
+          enabled: true,
+          imageMode: "default",
+          imageAlt: "",
+          width: 60,
+          height: 40,
+          imageUrl: null,
+          imageThumb: null,
+        },
+        { headers: CORS },
+      );
+    }
   }
 
   if (subpath === "api/ar-model") {
