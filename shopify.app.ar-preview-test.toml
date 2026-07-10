@@ -1,0 +1,34 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "7a2f1862b0cf332727684e9ae116290f"
+name = "AR Preview test"
+application_url = "https://jazz-population-developing-sheep.trycloudflare.com"
+embedded = true
+
+[build]
+automatically_update_urls_on_dev = true
+
+[webhooks]
+api_version = "2026-10"
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/app/uninstalled"
+  topics = [ "app/uninstalled" ]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/app/scopes_update"
+  topics = [ "app/scopes_update" ]
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "read_files,read_products"
+
+[auth]
+redirect_urls = [
+  "https://jazz-population-developing-sheep.trycloudflare.com/api/auth"
+]
+
+[app_proxy]
+url = "https://jazz-population-developing-sheep.trycloudflare.com/proxy"
+subpath = "ar-preview"
+prefix = "apps"
