@@ -1,7 +1,7 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "195e60e19d78e0573421f4f131db094d"
-application_url = "https://diana-spine-laser-oxide.trycloudflare.com"
+application_url = "https://ar.appsdroplogicx.uk"
 embedded = true
 name = "AR Preview"
 
@@ -10,7 +10,7 @@ name = "AR Preview"
 scopes = "read_files,read_products"
 
 [auth]
-redirect_urls = [ "https://diana-spine-laser-oxide.trycloudflare.com/api/auth" ]
+redirect_urls = [ "https://ar.appsdroplogicx.uk/api/auth" ]
 
 [webhooks]
 api_version = "2026-07"
@@ -24,7 +24,7 @@ api_version = "2026-07"
   topics = [ "app/uninstalled" ]
 
 [app_proxy]
-url = "https://diana-spine-laser-oxide.trycloudflare.com/proxy"
+url = "https://ar.appsdroplogicx.uk/proxy"
 subpath = "ar-preview"
 prefix = "apps"
 
