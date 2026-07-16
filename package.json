@@ -4,6 +4,8 @@
   "scripts": {
     "build": "react-router build",
     "dev": "PATH=/www/server/nodejs/v22.21.0/bin:$PATH shopify app dev",
+    "dev:store": "shopify app dev --config shopify.app.toml",
+    "dev:test-app": "shopify app dev --config shopify.app.ar-preview-test.toml",
     "config:link": "PATH=/www/server/nodejs/v22.21.0/bin:$PATH shopify app config link",
     "generate": "PATH=/www/server/nodejs/v22.21.0/bin:$PATH shopify app generate",
     "deploy": "PATH=/www/server/nodejs/v22.21.0/bin:$PATH shopify app deploy",

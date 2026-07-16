@@ -12,19 +12,22 @@ const MIME: Record<string, string> = {
   ".usdz": "model/vnd.usdz+zip",
 };
 
-function fileHeaders(ext: string, byteLength: number): Record<string, string> {
+function fileHeaders(name: string, ext: string, byteLength: number): Record<string, string> {
+  // IMPORTANT: unique Content-Disposition filename per size.
+  // Using a fixed "model.usdz" made Quick Look / Scene Viewer reuse the
+  // first downloaded model for every size after the first open.
+  const safeName = name.replace(/[^\w.-]/g, "_") || `model${ext}`;
   return {
     "Content-Type":                  MIME[ext],
     "Access-Control-Allow-Origin":   "*",
     "Access-Control-Allow-Methods":  "GET, HEAD, OPTIONS",
     "Access-Control-Allow-Headers":  "Content-Type, Range",
-    "Access-Control-Expose-Headers": "Content-Length, Content-Type",
-    "Cache-Control":                 "public, max-age=86400",
+    "Access-Control-Expose-Headers": "Content-Length, Content-Type, Content-Disposition",
+    // Unique URLs already encode size; still avoid intermediary reuse.
+    "Cache-Control":                 "private, no-cache, no-store, must-revalidate",
     "Content-Length":                String(byteLength),
-    ...(ext === ".usdz" ? {
-      "Content-Disposition": 'inline; filename="model.usdz"',
-      "Accept-Ranges": "bytes",
-    } : {}),
+    "Content-Disposition":           `inline; filename="${safeName}"`,
+    ...(ext === ".usdz" ? { "Accept-Ranges": "bytes" } : {}),
   };
 }
 
@@ -40,10 +43,17 @@ export async function loader({ params, request }: { params: { name?: string }; r
     });
   }
 
-  const name = params.name || "";
-  const ext  = name.slice(name.lastIndexOf("."));
+  const name = String(params.name || "").split("?")[0].split("#")[0];
+  const ext  = name.slice(name.lastIndexOf(".")).toLowerCase();
 
-  if (!MIME[ext] || name.includes("/") || name.includes("..") || name.includes("\0")) {
+  // Allow hash_60x84.glb (embedded cm tag for size debugging).
+  if (
+    !MIME[ext] ||
+    name.includes("/") ||
+    name.includes("..") ||
+    name.includes("\0") ||
+    !/^[\w.-]+\.(glb|usdz)$/i.test(name)
+  ) {
     return new Response("Not found", { status: 404 });
   }
 
@@ -61,7 +71,7 @@ export async function loader({ params, request }: { params: { name?: string }; r
   if (request.method === "HEAD") {
     return new Response(null, {
       status: 200,
-      headers: fileHeaders(ext, stat.size),
+      headers: fileHeaders(name, ext, stat.size),
     });
   }
 
@@ -69,6 +79,6 @@ export async function loader({ params, request }: { params: { name?: string }; r
 
   return new Response(new Uint8Array(buffer), {
     status: 200,
-    headers: fileHeaders(ext, buffer.byteLength),
+    headers: fileHeaders(name, ext, buffer.byteLength),
   });
 }

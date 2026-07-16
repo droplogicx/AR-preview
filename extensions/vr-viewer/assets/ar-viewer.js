@@ -226,13 +226,13 @@
     }
 
     var SIZE_PRESETS_FALLBACK = [
-      { label: 'A4', w: 21, h: 30, value: 'A4: 21x30 cm' },
-      { label: 'A3', w: 30, h: 42, value: 'A3: 30x42 cm' },
-      { label: 'A2', w: 42, h: 60, value: 'A2: 42x60 cm' },
-      { label: 'A1', w: 60, h: 84, value: 'A1: 60x84 cm' },
-      { label: 'B1', w: 70, h: 100, value: 'B1: 70x100 cm' },
-      { label: 'A0', w: 84, h: 119, value: 'A0: 84x119 cm' },
-      { label: 'B0', w: 100, h: 141, value: 'B0: 100x141 cm' }
+      { label: 'A4', w: 21, h: 29.7, value: 'A4: 21x29.7 cm' },
+      { label: 'A3', w: 29.7, h: 42, value: 'A3: 29.7x42 cm' },
+      { label: 'A2', w: 42, h: 59.4, value: 'A2: 42x59.4 cm' },
+      { label: 'A1', w: 59.4, h: 84.1, value: 'A1: 59.4x84.1 cm' },
+      { label: 'B1', w: 70.7, h: 100, value: 'B1: 70.7x100 cm' },
+      { label: 'A0', w: 84.1, h: 118.9, value: 'A0: 84.1x118.9 cm' },
+      { label: 'B0', w: 100, h: 141.4, value: 'B0: 100x141.4 cm' }
     ];
 
     var FRAME_SWATCH_IMAGES = {
@@ -420,13 +420,63 @@
         .replace(/"/g, '&quot;');
     }
 
+    // Standard paper sizes in cm (portrait: w = short side, h = long side).
+    // Used when a variant option is named only by its code (e.g. "A1")
+    // and carries no explicit dimensions in the label text.
+    var PAPER_SIZE_CM = {
+      a0: { w: 84.1, h: 118.9 },
+      a1: { w: 59.4, h: 84.1 },
+      a2: { w: 42, h: 59.4 },
+      a3: { w: 29.7, h: 42 },
+      a4: { w: 21, h: 29.7 },
+      a5: { w: 14.8, h: 21 },
+      b0: { w: 100, h: 141.4 },
+      b1: { w: 70.7, h: 100 },
+      b2: { w: 50, h: 70.7 },
+      b3: { w: 35.3, h: 50 }
+    };
+
+    function lookupPaperSize(str) {
+      var s = String(str || '').toLowerCase();
+      // Standalone paper code anywhere in the label: "A1", "Size A1", "B1 70*100cm"
+      var m = s.match(/\b([ab][0-5])\b/);
+      if (m && PAPER_SIZE_CM[m[1]]) return PAPER_SIZE_CM[m[1]];
+      // Code with no word boundary, e.g. "a1poster"
+      var m2 = s.match(/([ab][0-5])/);
+      if (m2 && PAPER_SIZE_CM[m2[1]]) return PAPER_SIZE_CM[m2[1]];
+      return null;
+    }
+
     function parseSizeValue(str) {
       var s = String(str || '').trim();
-      var dimMatch = s.match(/(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)/i);
+      // Accept x, ×, *, and common separators between the two numbers
+      var dimMatch = s.match(/(\d+(?:[.,]\d+)?)\s*[x×*✕╳]\s*(\d+(?:[.,]\d+)?)/i);
       var codeMatch = s.match(/^([A-Za-z0-9]+)/);
-      var w = dimMatch ? parseFloat(dimMatch[1]) : WIDTH_CM;
-      var h = dimMatch ? parseFloat(dimMatch[2]) : HEIGHT_CM;
       var label = codeMatch ? codeMatch[1] : s;
+
+      var w, h;
+      if (dimMatch) {
+        // Explicit dimensions in the label win
+        w = parseFloat(String(dimMatch[1]).replace(',', '.'));
+        h = parseFloat(String(dimMatch[2]).replace(',', '.'));
+        // If the label uses mm (e.g. "594x841mm"), convert to cm
+        if (/\d\s*mm/i.test(s) && w > 200) {
+          w = w / 10;
+          h = h / 10;
+        }
+      } else {
+        // No dimensions in the label — resolve by paper size code
+        var paper = lookupPaperSize(s);
+        if (paper) {
+          w = paper.w;
+          h = paper.h;
+        } else {
+          // Last resort: theme defaults (all sizes collapse here — bad)
+          w = WIDTH_CM;
+          h = HEIGHT_CM;
+        }
+      }
+
       return { label: label, value: s, display: s, w: w, h: h };
     }
 
@@ -481,14 +531,38 @@
       if (!productData || !productData.options) return;
       productData.options.forEach(function (name, idx) {
         var n = normOptName(name);
-        if (/size|dimension|format/.test(n)) {
+        if (/size|dimension|format|paper|measure/.test(n)) {
           VARIANT_META.size = { index: idx, name: name };
-        } else if (/border/.test(n)) {
+        } else if (/border|mat|matting/.test(n)) {
           VARIANT_META.border = { index: idx, name: name };
         } else if (/frame|mount|style|finish|print/.test(n)) {
           VARIANT_META.frame = { index: idx, name: name };
         }
       });
+
+      // Fallback: the option name didn't match anything known, so identify
+      // the size option by looking at its VALUES instead. An option whose
+      // values are paper codes (A1, B0…) or carry explicit dimensions
+      // (60x84, 70*100cm) is the size option whatever it's called.
+      if (!VARIANT_META.size) {
+        productData.options.forEach(function (name, idx) {
+          if (VARIANT_META.size) return;
+          if (VARIANT_META.frame && VARIANT_META.frame.index === idx) return;
+          if (VARIANT_META.border && VARIANT_META.border.index === idx) return;
+          var vals = uniqueOptionValues(idx);
+          if (!vals || vals.length < 2) return;
+          var hits = 0;
+          vals.forEach(function (v) {
+            var s = String(v || '');
+            if (/(\d+(?:[.,]\d+)?)\s*[x×*✕╳]\s*(\d+(?:[.,]\d+)?)/i.test(s)) { hits++; return; }
+            if (lookupPaperSize(s)) hits++;
+          });
+          // Treat as the size option when most values look like sizes
+          if (hits >= Math.ceil(vals.length * 0.6)) {
+            VARIANT_META.size = { index: idx, name: name };
+          }
+        });
+      }
     }
 
     function findOptionFieldset(optionName) {
@@ -835,7 +909,12 @@
     function applyOptionToState(name, val) {
       if (!val) return;
       var n = normOptName(name);
+      // Once the shopper picks a size in the modal customizer, the product
+      // page must never overwrite it. Without this, a theme re-render can
+      // reset the size moments before AR launches.
+      var lockSize = state.customizedInModal === true;
       if (VARIANT_META.size && optionNamesMatch(name, VARIANT_META.size.name)) {
+        if (lockSize) return;
         state.sizeIndex = findSizeIndexByValue(val);
         state.sizeScale = presetScale(getSizePresets()[state.sizeIndex]);
         state.spaceWidth = cmToDisplayUnit(getSizePresets()[state.sizeIndex].w, state.unit);
@@ -853,11 +932,12 @@
         if (state.frameId === 'none') state.matting = 'none';
         return;
       }
-      if (/size|dimension|format/.test(n)) {
+      if (/size|dimension|format|paper|measure/.test(n)) {
+        if (lockSize) return;
         state.sizeIndex = findSizeIndexByValue(val);
         state.sizeScale = presetScale(getSizePresets()[state.sizeIndex]);
         state.spaceWidth = cmToDisplayUnit(getSizePresets()[state.sizeIndex].w, state.unit);
-      } else if (/border/.test(n)) {
+      } else if (/border|mat|matting/.test(n)) {
         state.borderValue = val;
         state.matting = parseBorderMat(val);
         if (state.frameId === 'none') state.matting = 'none';
@@ -1099,9 +1179,37 @@
       return p.w > 0 ? p.h / p.w : getProductRatio();
     }
 
-    function outerSizeCm() {
-      var w = WIDTH_CM * state.sizeScale;
-      return { w: w, h: w * activePresetRatio() };
+    // The customizer dropdown inside the modal is the source of truth for
+    // which size the shopper wants. state.sizeIndex can be clobbered by a
+    // product-page re-sync just before AR launches, so read the <select>
+    // directly whenever it exists and fall back to state otherwise.
+    function activeSizeIndex() {
+      var sel = document.getElementById('ar-size');
+      if (sel && sel.value !== '' && sel.value != null) {
+        var i = parseInt(sel.value, 10);
+        if (!isNaN(i) && getSizePresets()[i]) return i;
+      }
+      var s = state.sizeIndex;
+      if (getSizePresets()[s]) return s;
+      return DEFAULT_SIZE_INDEX;
+    }
+
+    function activeSizePreset() {
+      var presets = getSizePresets();
+      return presets[activeSizeIndex()] || presets[DEFAULT_SIZE_INDEX] || presets[0];
+    }
+
+    function outerSizeCm(ratioOverride) {
+      var preset = activeSizePreset();
+      if (!preset || !(preset.w > 0) || !(preset.h > 0)) {
+        return { w: WIDTH_CM, h: HEIGHT_CM };
+      }
+      var shortSide = Math.min(preset.w, preset.h);
+      var longSide = Math.max(preset.w, preset.h);
+      // Orientation from artwork ratio (h/w). Landscape A1 → 84×60, not 60×84.
+      var imgRatio = ratioOverride || getProductRatio();
+      if (imgRatio < 1) return { w: longSide, h: shortSide };
+      return { w: shortSide, h: longSide };
     }
 
     function matPaddingPx(outerPx, outerCm) {
@@ -1161,8 +1269,34 @@
       paintId: DEFAULT_PAINT_ID,
       customPaintColor: null,
       customizedInModal: false,
-      lastSyncedPickerSig: ''
+      lastSyncedPickerSig: '',
+      zoom: 1
     };
+
+    var ZOOM_MIN = 0.4;
+    var ZOOM_MAX = 2.5;
+    var ZOOM_STEP = 0.15;
+
+    function setZoom(z) {
+      state.zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z));
+      syncZoomUI();
+      renderViewport();
+    }
+
+    function syncZoomUI() {
+      /* pinch/wheel only - no button UI in the modal */
+    }
+
+    function syncSizeCaption() {
+      var el = document.getElementById('ar-size-caption');
+      if (!el) return;
+      var preset = activeSizePreset();
+      if (!preset) { el.textContent = ''; return; }
+      var dims = outerSizeCm();
+      var label = preset.label || preset.value || '';
+      el.textContent = label + ' · ' +
+        Math.round(dims.w) + ' × ' + Math.round(dims.h) + ' cm';
+    }
 
     function markModalCustomized() {
       state.customizedInModal = true;
@@ -1450,11 +1584,6 @@
       '<div id="ar-splash" aria-hidden="true">' +
       '<div class="ar-splash-backdrop"></div>' +
       '<div class="ar-splash-top">' +
-      '<button type="button" class="ar-splash-icon-btn" id="ar-splash-fullscreen" aria-label="Full screen">' +
-      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">' +
-      '<path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/>' +
-      '</svg>' +
-      '</button>' +
       '<button type="button" class="ar-splash-icon-btn ar-exit-btn" id="ar-splash-close" aria-label="Exit">' +
       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">' +
       '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>' +
@@ -1546,11 +1675,34 @@
       var w, h;
 
       if (PRODUCT_ONLY_PREVIEW) {
+        // Use the selected preset's actual cm area to compute a
+        // proportional on-screen size. Each paper size should look
+        // visibly different — A4 small, B0 fills the viewport.
+        var presets = getSizePresets();
+        var preset = activeSizePreset();
+        var presetRatio = preset.w > 0 ? preset.h / preset.w : ratio;
+
+        // Normalise against the largest preset's diagonal
+        var maxDiag = 0;
+        presets.forEach(function (p) {
+          var d = Math.sqrt(p.w * p.w + p.h * p.h);
+          if (d > maxDiag) maxDiag = d;
+        });
+        var curDiag = Math.sqrt(preset.w * preset.w + preset.h * preset.h);
+        var sizeRatio = maxDiag > 0 ? curDiag / maxDiag : 1;
+
+        // Largest preset → 88% of viewport, smallest → 25%
+        var minFrac = 0.25;
+        var maxFrac = 0.88;
+        var fraction = minFrac + (maxFrac - minFrac) * sizeRatio;
         var fit = Math.min(vpW, vpH) || 300;
-        var base = fit * 0.78;
+        // state.zoom is a manual multiplier driven by the +/- buttons,
+        // pinch and wheel. It sits on top of the preset-derived size so
+        // the paper sizes stay proportional to each other while zooming.
+        var base = fit * fraction * (state.zoom || 1);
+
         if (mockup) {
           var frameAspect = frameMockupAspect(mockup);
-          base = base * scale;
           if (frameAspect >= 1) {
             w = base;
             h = w / frameAspect;
@@ -1559,14 +1711,16 @@
             w = h * frameAspect;
           }
         } else if (ratio >= 1) {
-          h = base * scale;
+          h = base;
           w = h / ratio;
         } else {
-          w = base * scale;
+          w = base;
           h = w * ratio;
         }
-        var maxW = vpW * 0.94;
-        var maxH = vpH * 0.92;
+        // Let the clamp grow with zoom so zooming in isn't blocked
+        var zoomClamp = Math.max(1, state.zoom || 1);
+        var maxW = vpW * 0.94 * zoomClamp;
+        var maxH = vpH * 0.92 * zoomClamp;
         if (w > maxW) { w = maxW; h = mockup ? w / frameMockupAspect(mockup) : w * ratio; }
         if (h > maxH) { h = maxH; w = mockup ? h * frameMockupAspect(mockup) : h / ratio; }
         return { w: Math.round(Math.max(24, w)), h: Math.round(Math.max(24, h)) };
@@ -1738,7 +1892,9 @@
         '</div>';
 
       var productActionsHtml = PRODUCT_ONLY_PREVIEW
-        ? '<div class="ar-product-actions">' + actionButtonsHtml + '</div>'
+        ? '<div class="ar-product-actions">' +
+          '<div class="ar-size-caption" id="ar-size-caption"></div>' +
+          actionButtonsHtml + '</div>'
         : '';
 
       var viewportHtml =
@@ -2109,6 +2265,7 @@
 
       els.productWrap.style.transform = productTiltTransform();
       syncCustomizeFrameUI();
+      syncSizeCaption();
       syncSizeSliderUI();
       syncSpaceWidthFields(true);
       syncPaintButton();
@@ -2280,6 +2437,12 @@
       }
 
       function applyScale(scale) {
+        if (PRODUCT_ONLY_PREVIEW) {
+          // Preview shows true relative paper sizes; pinch/wheel act as a
+          // view zoom only and must not change the selected size.
+          setZoom(scale);
+          return;
+        }
         state.sizeScale = Math.max(SIZE_MIN, Math.min(SIZE_MAX, scale));
         syncSizeIndexFromScale();
         syncSizeSliderUI();
@@ -2296,7 +2459,7 @@
         if (e.touches.length === 2) {
           pinching = true;
           initialDist = touchDist(e.touches);
-          initialScale = state.sizeScale;
+          initialScale = PRODUCT_ONLY_PREVIEW ? (state.zoom || 1) : state.sizeScale;
           e.preventDefault();
         }
       }, { passive: false });
@@ -2316,7 +2479,7 @@
         if (e.target.closest('.ar-popover') || e.target.closest('.ar-toolbar') ||
           e.target.closest('.ar-size-slider')) return;
         var delta = e.deltaY > 0 ? -0.05 : 0.05;
-        applyScale(state.sizeScale + delta);
+        applyScale((PRODUCT_ONLY_PREVIEW ? (state.zoom || 1) : state.sizeScale) + delta);
         e.preventDefault();
       }, { passive: false });
     }
@@ -2586,16 +2749,25 @@
       if (!toSecureUrl(IMG)) {
         return Promise.reject(new Error('Product image is missing'));
       }
+      // Lock size from the customizer <select> before composing — product-page
+      // sync must not override the size the shopper just picked.
+      state.sizeIndex = activeSizeIndex();
+      var lockedPreset = activeSizePreset();
+      if (lockedPreset) {
+        state.sizeScale = presetScale(lockedPreset);
+      }
       return loadProductImageForCanvas().then(function (prodImg) {
         var ratio = productRatioFromImage(prodImg);
         if (ratio > 0) productRatio = ratio;
         renderViewport();
         var previewSize = productScale();
+        var dims = getARDimensions(ratio);
         return ensureFrameMockupLoaded(ratio).then(function () {
           return {
             image: renderARCompositeDataUrl(prodImg, ratio, previewSize),
             frameColor: frame.id === 'none' ? '' : frame.color,
-            dims: getARDimensions(ratio, previewSize)
+            dims: dims,
+            sizeLabel: (lockedPreset && lockedPreset.label) || ''
           };
         });
       });
@@ -2621,19 +2793,35 @@
       }
     }
 
-    function resolveModelUrl(pathOrUrl) {
+    function resolveModelUrl(pathOrUrl, sizeTag) {
       if (!pathOrUrl) return '';
-      var path = extractModelPath(pathOrUrl);
-      if (!path && String(pathOrUrl).charAt(0) === '/') path = String(pathOrUrl);
+      var raw = String(pathOrUrl);
+      var path = extractModelPath(raw);
+      if (!path && raw.charAt(0) === '/') path = raw;
+      var url = '';
       if (path) {
         var prefix = (BACKEND || '/apps/ar-preview').replace(/\/$/, '');
+        // Keep path+query from server (cache-bust), resolve against store origin.
         try {
-          return new URL(prefix + path, window.location.href).href;
+          url = new URL(prefix + path, window.location.href).href;
         } catch (e) {
-          return prefix + path;
+          url = prefix + path;
         }
+      } else {
+        url = toSecureUrl(raw);
       }
-      return toSecureUrl(pathOrUrl);
+      if (!url) return '';
+      // Guarantee a unique URL per paper size so Scene Viewer cannot reuse
+      // the previous AR model after the first successful open.
+      try {
+        var u = new URL(url, window.location.href);
+        if (sizeTag) u.searchParams.set('s', String(sizeTag));
+        if (!u.searchParams.get('v')) u.searchParams.set('v', 'wall-v23');
+        u.searchParams.set('t', String(Date.now()));
+        return u.href;
+      } catch (e2) {
+        return url;
+      }
     }
 
     function loadModelViewerScript() {
@@ -2738,41 +2926,52 @@
       setARButtonLoading(false);
     }
 
-    function launchIOSQuickLook(usdzUrl) {
-      return fetchHeadWithTimeout(usdzUrl, 5000)
-        .then(function (res) {
-          if (!res.ok && res.status !== 405) {
-            throw new Error('Model not found (HTTP ' + res.status + ')');
-          }
-        })
-        .catch(function () {
-          /* HEAD can fail on some proxies — still try Quick Look */
-        })
-        .then(function () {
-          var link = getDirectQuickLookLink();
-          link.href = usdzUrl;
-          link.click();
-          finishDirectARSession();
-        });
+    // AR Quick Look allows pinch-scaling by default. Appending
+    // #allowsContentScaling=0 forces the model to stay at 100% real-world
+    // scale, which is what "true to size" requires. Fragments are never
+    // sent to the server, so the HEAD preflight uses the bare URL.
+    function quickLookUrl(usdzUrl) {
+      if (!usdzUrl) return '';
+      var base = String(usdzUrl).split('#')[0];
+      return base + '#allowsContentScaling=0';
     }
 
-    function launchAndroidWebXR(glbUrl) {
+    function launchIOSQuickLook(usdzUrl) {
+      // Must run inside a tap handler — async HEAD before click breaks Quick Look.
+      var link = getDirectQuickLookLink();
+      link.href = quickLookUrl(usdzUrl);
+      link.click();
+      finishDirectARSession();
+      return Promise.resolve();
+    }
+
+    function getAndroidModelViewerHost() {
+      var host = document.getElementById('ar-direct-mv-host');
+      if (!host) {
+        host = document.createElement('div');
+        host.id = 'ar-direct-mv-host';
+        host.className = 'ar-direct-mv-stage';
+        document.body.appendChild(host);
+      }
+      return host;
+    }
+
+    /** Preload GLB into a hidden model-viewer so Open AR can activate on tap. */
+    function prepareAndroidAR(glbUrl) {
       return loadModelViewerScript().then(function () {
-        var host = document.getElementById('ar-direct-mv-host');
-        if (!host) {
-          host = document.createElement('div');
-          host.id = 'ar-direct-mv-host';
-          host.className = 'ar-direct-mv-stage';
-          document.body.appendChild(host);
-        }
+        var host = getAndroidModelViewerHost();
         host.innerHTML = '';
+        host.classList.remove('ar-direct-mv-active');
 
         var mv = document.createElement('model-viewer');
         mv.id = 'ar-direct-mv';
         mv.setAttribute('ar', '');
-        mv.setAttribute('ar-modes', 'webxr');
+        // WebXR respects real meters. Keep Scene Viewer as fallback but with
+        // ar-scale=fixed (resizable=false) so 100cm stays ~39in when possible.
+        mv.setAttribute('ar-modes', 'webxr scene-viewer');
         mv.setAttribute('ar-placement', 'wall');
         mv.setAttribute('ar-scale', 'fixed');
+        mv.setAttribute('scale', '1 1 1');
         mv.setAttribute('camera-orbit', '0deg 90deg auto');
         mv.setAttribute('min-camera-orbit', 'auto 90deg auto');
         mv.setAttribute('max-camera-orbit', 'auto 90deg auto');
@@ -2782,78 +2981,131 @@
         host.appendChild(mv);
 
         return promiseWithTimeout(new Promise(function (resolve, reject) {
-          var settled = false;
-          function done(err) {
-            if (settled) return;
-            settled = true;
-            if (err) reject(err);
-            else resolve();
-          }
-
-          function onArStatus(e) {
-            var st = e.detail && e.detail.status;
-            if (st === 'session-started') {
-              host.classList.add('ar-direct-mv-active');
-              finishDirectARSession();
-              done();
-            } else if (st === 'failed') {
-              host.classList.remove('ar-direct-mv-active');
-              finishDirectARSession();
-              done(new Error('AR failed to start. Update Chrome and Google Play Services for AR.'));
-            } else if (st === 'not-presenting') {
-              host.classList.remove('ar-direct-mv-active');
-              finishDirectARSession();
-              done();
-            }
-          }
-
-          mv.addEventListener('ar-status', onArStatus);
           mv.addEventListener('load', function onLoad() {
             mv.removeEventListener('load', onLoad);
-            if (!mv.canActivateAR) {
-              finishDirectARSession();
-              done(new Error('AR not available on this device'));
-              return;
-            }
-            finishDirectARSession();
-            host.classList.add('ar-direct-mv-active');
-            mv.activateAR();
+            var dim = null;
+            try {
+              if (typeof mv.getDimensions === 'function') {
+                var d = mv.getDimensions();
+                if (d) {
+                  dim = {
+                    x: Number(d.x) || 0,
+                    y: Number(d.y) || 0,
+                    z: Number(d.z) || 0
+                  };
+                }
+              }
+            } catch (e) { /* ignore */ }
+            mv.__arDims = dim;
+            // Keep authored meters — do not renormalize here.
+            try { mv.scale = '1 1 1'; } catch (e2) { /* ignore */ }
+            resolve(mv);
           }, { once: true });
           mv.addEventListener('error', function () {
-            finishDirectARSession();
-            done(new Error('Could not load 3D model'));
+            reject(new Error('Could not load 3D model from:\n' + glbUrl));
           }, { once: true });
           mv.src = glbUrl;
-        }), 25000, 'AR took too long to open. Check your connection and try again.');
+        }), 25000, 'Model took too long to load. Check connection and try again.');
+      });
+    }
+
+    function launchAndroidSceneViewerIntent(glbUrl) {
+      var fileUrl = String(glbUrl || '').split('#')[0];
+      // 1.2 + resizable=false is required for true-to-life meters on Android.
+      var intent =
+        'intent://arvr.google.com/scene-viewer/1.2?' +
+        'file=' + encodeURIComponent(fileUrl) +
+        '&mode=ar_preferred' +
+        '&resizable=false' +
+        '&disable_occlusion=true' +
+        '&enable_vertical_placement=true' +
+        '#Intent;scheme=https;package=com.google.android.googlequicksearchbox;' +
+        'action=android.intent.action.VIEW;' +
+        'S.browser_fallback_url=' + encodeURIComponent(fileUrl) +
+        ';end;';
+      window.location.href = intent;
+      finishDirectARSession();
+      return Promise.resolve();
+    }
+
+    function activatePreparedAndroidAR(mv) {
+      var host = getAndroidModelViewerHost();
+      if (!mv) {
+        finishDirectARSession();
+        return Promise.reject(new Error('3D viewer not ready'));
+      }
+      if (!mv.canActivateAR) {
+        finishDirectARSession();
+        return Promise.reject(new Error(
+          'AR not available on this device (canActivateAR=false). Use Chrome with AR support.'
+        ));
+      }
+
+      return promiseWithTimeout(new Promise(function (resolve, reject) {
+        var settled = false;
+        function done(err) {
+          if (settled) return;
+          settled = true;
+          if (err) reject(err);
+          else resolve();
+        }
+
+        function onArStatus(e) {
+          var st = e.detail && e.detail.status;
+          if (st === 'session-started') {
+            host.classList.add('ar-direct-mv-active');
+            finishDirectARSession();
+            done();
+          } else if (st === 'failed') {
+            host.classList.remove('ar-direct-mv-active');
+            finishDirectARSession();
+            done(new Error('AR failed to start. Update Chrome and Google Play Services for AR.'));
+          } else if (st === 'not-presenting') {
+            host.classList.remove('ar-direct-mv-active');
+            finishDirectARSession();
+            done();
+          }
+        }
+
+        mv.addEventListener('ar-status', onArStatus);
+        try {
+          host.classList.add('ar-direct-mv-active');
+          mv.activateAR();
+        } catch (err) {
+          finishDirectARSession();
+          done(err || new Error('activateAR threw'));
+        }
+      }), 25000, 'AR took too long to open. Try again.');
+    }
+
+    function launchAndroidWebXR(glbUrl) {
+      return prepareAndroidAR(glbUrl).then(function (mv) {
+        return activatePreparedAndroidAR(mv);
       });
     }
 
     function launchDirectAR(data) {
-      var glbUrl = resolveModelUrl(data.glbPath || data.glb);
-      var usdzUrl = resolveModelUrl(data.usdzPath || data.usdz);
+      var tag = data.sizeTag || (
+        (data.wCm != null && data.hCm != null)
+          ? (Math.round(data.wCm) + 'x' + Math.round(data.hCm))
+          : ''
+      );
+      var glbUrl = resolveModelUrl(data.glbPath || data.glb, tag);
+      var usdzUrl = resolveModelUrl(data.usdzPath || data.usdz, tag);
 
       if (isIOS) {
         if (!usdzUrl) return Promise.reject(new Error('AR model not available for iOS'));
-        return promiseWithTimeout(
-          launchIOSQuickLook(usdzUrl),
-          12000,
-          'AR took too long to open. Try again.'
-        );
+        return launchIOSQuickLook(usdzUrl);
       }
       if (!glbUrl) return Promise.reject(new Error('No GLB model path returned'));
       return launchAndroidWebXR(glbUrl);
     }
 
-    function getARDimensions(ratioOverride, previewSize) {
-      var outer = outerSizeCm();
-      if (previewSize && previewSize.w > 0 && previewSize.h > 0 && outer.w > 0) {
-        return { w: outer.w, h: outer.w * (previewSize.h / previewSize.w) };
-      }
-      var heightRatio = framedPreviewHeightRatio(ratioOverride);
-      if (heightRatio > 0 && outer.w > 0) {
-        return { w: outer.w, h: outer.w * heightRatio };
-      }
-      return { w: outer.w, h: outer.h };
+    function getARDimensions(ratioOverride) {
+      // Absolute cm from the customizer size select (oriented to artwork).
+      // previewSize / sizeScale are for on-screen preview only — AR must use
+      // the real paper dimensions the shopper picked.
+      return outerSizeCm(ratioOverride);
     }
 
 
@@ -2930,7 +3182,7 @@
             drawProductOnCanvas(ctx, exportW, exportH, scaleX, scaleY);
             downloadCanvas(canvas);
           } catch (err) {
-            console.error('[AR Viewer] Save failed:', err);
+            /* ignore export errors */
           }
           finishSave();
         }
@@ -3000,63 +3252,79 @@
     function fetchAndLaunch() {
       if (arInProgress) return;
       if (!BACKEND) {
-        alert('AR backend is not configured. Ensure the AR Preview app is installed and the app proxy is enabled.');
+        alert('AR is not available right now. Please try again later.');
         return;
       }
+
+      state.sizeIndex = activeSizeIndex();
+      var preset = activeSizePreset();
+      if (preset) state.sizeScale = presetScale(preset);
+
       setARButtonLoading(true);
-      setARLoadingMessage('Preparing your product…');
+      setARLoadingMessage('Preparing AR…');
 
       buildARProductImage()
         .then(function (payload) {
           if (!payload.image) {
             throw new Error('Could not prepare product image for AR');
           }
-          setARLoadingMessage('Building 3D model…');
+          var wCm = Number(payload.dims && payload.dims.w);
+          var hCm = Number(payload.dims && payload.dims.h);
+          if (!(wCm > 0) || !(hCm > 0)) {
+            throw new Error('Invalid AR size from customizer');
+          }
+          var label = payload.sizeLabel || (preset && (preset.label || preset.value)) || '';
+          setARLoadingMessage('Opening AR…');
           return fetch(BACKEND + '/api/ar-model', {
             method: 'POST',
             mode: 'cors',
+            cache: 'no-store',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               image: payload.image,
               frameColor: payload.frameColor || '',
-              w: payload.dims.w,
-              h: payload.dims.h,
+              w: wCm,
+              h: hCm,
               frame: 'none',
               matting: 'none',
               sizeScale: 1,
+              sizeLabel: label,
               angle: state.angle,
               level: state.level,
               pitch: state.pitch
             })
-          });
-        })
-        .then(function (res) {
-          return res.json().then(function (data) {
-            if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
-            return data;
+          }).then(function (res) {
+            return res.json().then(function (data) {
+              if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+              return data;
+            });
           });
         })
         .then(function (data) {
           if (!data.glb && !data.usdz && !data.glbPath && !data.usdzPath) {
             throw new Error('No model URL returned');
           }
-          setARLoadingMessage('Opening AR…');
           return launchDirectAR(data);
         })
         .catch(function (err) {
           if (els.loading) els.loading.hidden = true;
           arInProgress = false;
           setARButtonLoading(false);
-          console.error('[AR Viewer]', err);
-          alert('Could not load AR model: ' + err.message);
+          alert('Could not open AR. Please try again.');
         });
     }
 
     function onViewAR() {
       if (isMobile) {
         closePopovers();
-        syncFromProductPage();
-        applySyncedPreviewToModal();
+        // Do NOT re-sync from the product page once the shopper has chosen
+        // in the modal customizer - syncFromProductPage() would overwrite
+        // state.sizeIndex with the product-page variant and every size would
+        // launch AR at the same dimensions.
+        if (!state.customizedInModal) {
+          syncFromProductPage();
+          applySyncedPreviewToModal();
+        }
         fetchAndLaunch();
       } else {
         openQRPopover();
@@ -3105,8 +3373,10 @@
         markModalCustomized();
         state.sizeIndex = parseInt(e.target.value, 10);
         state.sizeScale = presetScale(getSizePresets()[state.sizeIndex]);
+        state.zoom = 1;
         syncSpaceWidthFields(false);
         syncSizeSliderUI();
+        syncZoomUI();
         renderViewport();
       });
 
@@ -3397,6 +3667,7 @@
       state.customPaintColor = null;
       state.customizedInModal = false;
       state.lastSyncedPickerSig = '';
+      state.zoom = 1;
       state.posX = 50;
       state.posY = 50;
       state.wallTint = null;

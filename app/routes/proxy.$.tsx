@@ -4,6 +4,7 @@ import { loader as arModelLoader, action as arModelAction } from "./api.ar-model
 import { loader as arModelFileLoader } from "./api.ar-model.file.$name";
 import { loader as arViewLoader } from "./ar.view";
 import { loader as arViewerSettingsLoader } from "./api.ar-viewer-settings";
+import { loader as arHealthLoader } from "./api.ar-health";
 import { action as enhanceImageAction } from "./api.enhance-image";
 
 const CORS = {
@@ -53,12 +54,20 @@ export async function loader({
     }
   }
 
+  if (subpath === "api/ar-health") {
+    return arHealthLoader({ request });
+  }
+
   if (subpath === "api/ar-model") {
     return arModelLoader({ request });
   }
 
   if (subpath.startsWith("api/ar-model/file/")) {
-    const name = subpath.slice("api/ar-model/file/".length);
+    // Strip ?v= / #fragment — size cache-bust query must not break lookup.
+    const name = subpath
+      .slice("api/ar-model/file/".length)
+      .split("?")[0]
+      .split("#")[0];
     return arModelFileLoader({ request, params: { name } });
   }
 

@@ -1,0 +1,9 @@
+PASS | A4 | cm=21x29.7 | expect_m=0.210x0.297 | poster=0.21x0.297 | calib=2x2
+PASS | A3 | cm=29.7x42 | expect_m=0.297x0.420 | poster=0.297x0.42 | calib=2x2
+PASS | A2 | cm=42x59.4 | expect_m=0.420x0.594 | poster=0.42x0.594 | calib=2x2
+PASS | A1 | cm=59.4x84.1 | expect_m=0.594x0.841 | poster=0.594x0.841 | calib=2x2
+PASS | B1 | cm=70.7x100 | expect_m=0.707x1.000 | poster=0.707x1 | calib=2x2
+PASS | A0 | cm=84.1x118.9 | expect_m=0.841x1.189 | poster=0.841x1.189 | calib=2x2
+PASS | B0 | cm=100x141.4 | expect_m=1.000x1.414 | poster=1x1.414 | calib=2x2
+
+ALL SIZES OK for real-life meters.

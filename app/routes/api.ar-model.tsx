@@ -13,6 +13,7 @@ import {
   ensureCacheDir,
   isValidCachedFile,
 } from "../ar-model-cache.server";
+import { API_VERSION } from "../ar-api-version.server";
 
 const CACHE_DIR = AR_MODEL_CACHE_DIR;
 
@@ -20,7 +21,15 @@ const CORS = {
   "Access-Control-Allow-Origin":  "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
+  "Cache-Control": "no-store",
 };
+
+function errorResponse(message: string, status = 500) {
+  return Response.json(
+    { error: message, apiVersion: API_VERSION },
+    { status, headers: CORS },
+  );
+}
 
 function getPublicBaseUrl(request: Request): string {
   const envUrl = (process.env.SHOPIFY_APP_URL || process.env.APP_URL || "").replace(/\/$/, "");
@@ -50,12 +59,17 @@ function getPublicBaseUrl(request: Request): string {
   }
 }
 
-function errorResponse(message: string, status = 500) {
-  return Response.json({ error: message }, { status, headers: CORS });
-}
-
 /** Visible frame depth in AR (~1 inch). */
 const FRAME_DEPTH_M = 2.54 / 100;
+
+/**
+ * Minimum export bounding box (meters). Scene Viewer often upscales tiny
+ * models and downscales large ones toward ~1m, which made every ISO size
+ * look the same. A 1m calibration box (NOT 2m — that halved real scale)
+ * keeps small posters (A4/A3) true-to-life under that behavior, while the
+ * poster mesh itself stays at exact paper meters for WebXR.
+ */
+const AR_CALIBRATION_EXTENT_M = 1.0;
 
 async function generateAndCache(
   request: Request,
@@ -67,20 +81,32 @@ async function generateAndCache(
   level = 0,
   pitch = 0,
   edgeColor = "#3d2b1f",
+  sizeLabel = "",
 ) {
   ensureCacheDir();
 
   const appUrl   = getPublicBaseUrl(request);
   const hash     = crypto.createHash("md5").update(cacheSeed).digest("hex");
-  const glbName  = `${hash}.glb`;
-  const usdzName = `${hash}.usdz`;
+  // Embed cm in the filename so mobile can verify A1 vs B0 are different files.
+  const sizeTag  = `${Math.round(wCm)}x${Math.round(hCm)}`;
+  const glbName  = `${hash}_${sizeTag}.glb`;
+  const usdzName = `${hash}_${sizeTag}.usdz`;
   const glbPath  = path.join(CACHE_DIR, glbName);
   const usdzPath = path.join(CACHE_DIR, usdzName);
-  const glbUrl   = `${appUrl}/api/ar-model/file/${glbName}`;
-  const usdzUrl  = `${appUrl}/api/ar-model/file/${usdzName}`;
+  // Cache-bust query so Scene Viewer / Quick Look never reuse a prior size.
+  const bust = `v=${API_VERSION}&s=${sizeTag}`;
+  const glbUrl   = `${appUrl}/api/ar-model/file/${glbName}?${bust}`;
+  const usdzUrl  = `${appUrl}/api/ar-model/file/${usdzName}?${bust}`;
+  const wM = Math.max(0.01, wCm / 100);
+  const hM = Math.max(0.01, hCm / 100);
 
   const needsGlb  = !isValidCachedFile(glbPath);
   const needsUsdz = !isValidCachedFile(usdzPath);
+
+  console.log(
+    `[ar-model ${API_VERSION}] sizeLabel=${sizeLabel || "?"} wCm=${wCm} hCm=${hCm} ` +
+    `wM=${wM.toFixed(4)} hM=${hM.toFixed(4)} needsGlb=${needsGlb} needsUsdz=${needsUsdz} file=${glbName}`,
+  );
 
   if (needsGlb || needsUsdz) {
     const frame = await buildFrameContext(imageBuffer, wCm, hCm, angle, level, pitch, edgeColor);
@@ -99,8 +125,17 @@ async function generateAndCache(
   return Response.json({
     glb: glbUrl,
     usdz: usdzUrl,
-    glbPath: `/api/ar-model/file/${glbName}`,
-    usdzPath: `/api/ar-model/file/${usdzName}`,
+    glbPath: `/api/ar-model/file/${glbName}?${bust}`,
+    usdzPath: `/api/ar-model/file/${usdzName}?${bust}`,
+    // Echo so the phone can confirm what the server actually used.
+    apiVersion: API_VERSION,
+    wCm,
+    hCm,
+    wM,
+    hM,
+    sizeLabel,
+    sizeTag,
+    cached: !needsGlb && !needsUsdz,
   }, { headers: CORS });
 }
 
@@ -126,7 +161,7 @@ export async function loader({ request }: { request: Request }) {
 
   try {
     const imageBuffer = await downloadImage(imgUrl);
-    const cacheSeed   = `${imgUrl}-${wCm}-${hCm}-wall-v9`;
+    const cacheSeed   = `${imgUrl}-${wCm}-${hCm}-${API_VERSION}`;
     return await generateAndCache(request, imageBuffer, wCm, hCm, cacheSeed);
   } catch (err: any) {
     console.error("[ar-model error]", err?.message || err);
@@ -144,8 +179,11 @@ export async function action({ request }: { request: Request }) {
     const dataUrl    = body.image || "";
     const imgUrl     = body.imgUrl || "";
     const frameColor = body.frameColor || "";
-    const wCm        = parseFloat(body.w || "60");
-    const hCm        = parseFloat(body.h || "40");
+    // Do not use `body.w || "60"` — a numeric 0 would incorrectly fall back.
+    const wParsed    = Number(body.w);
+    const hParsed    = Number(body.h);
+    const wCm        = Number.isFinite(wParsed) && wParsed > 0 ? wParsed : 60;
+    const hCm        = Number.isFinite(hParsed) && hParsed > 0 ? hParsed : 40;
     const frame      = body.frame || "none";
     const matting    = body.matting || "none";
     const effectiveMatting = frame === "none" ? "none" : matting;
@@ -166,12 +204,15 @@ export async function action({ request }: { request: Request }) {
       return errorResponse("image or imgUrl field required", 400);
     }
 
+    const sizeLabel = String(body.sizeLabel || "");
     const cacheSeed = crypto.createHash("md5")
       .update(imageBuffer)
-      .update(`|${wCm}|${hCm}|${frame}|${effectiveMatting}|${sizeScale}|${angle}|${level}|${pitch}|wall-v16`)
+      .update(`|${wCm}|${hCm}|${frame}|${effectiveMatting}|${sizeScale}|${angle}|${level}|${pitch}|${API_VERSION}`)
       .digest("hex");
     const edgeColor = frameColor || FRAME_COLOR_MAP[frame] || "#3d2b1f";
-    return await generateAndCache(request, imageBuffer, wCm, hCm, cacheSeed, angle, level, pitch, edgeColor);
+    return await generateAndCache(
+      request, imageBuffer, outerWCm, outerHCm, cacheSeed, angle, level, pitch, edgeColor, sizeLabel,
+    );
   } catch (err: any) {
     console.error("[ar-model POST error]", err?.message || err);
     return errorResponse("Failed to generate AR model: " + (err?.message || "unknown"));
@@ -330,6 +371,9 @@ async function buildFrameContext(
   pitchDeg = 0,
   edgeColor = "#3d2b1f",
 ) {
+  // Use the shopper-selected paper size exactly (cm → meters).
+  // Do NOT derive height from the image aspect — that made every size
+  // share the photo ratio and ignored the customizer size dropdown.
   const wM = Math.max(0.01, wCm / 100);
   const hM = Math.max(0.01, hCm / 100);
 
@@ -349,9 +393,6 @@ async function buildFrameContext(
 
   const THREE = await import("three");
 
-  const imgAspect = img.width / img.height;
-  const hFromImg = wM / imgAspect;
-  const finalH = hFromImg > 0 ? hFromImg : hM;
   const texture = new THREE.CanvasTexture(canvas as any);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.flipY = true;
@@ -376,7 +417,7 @@ async function buildFrameContext(
   return {
     THREE,
     wM,
-    finalH,
+    hM,
     frontMat,
     backMat,
     edgeMat,
@@ -386,16 +427,43 @@ async function buildFrameContext(
   };
 }
 
-/** GLB/Android: single box with per-face materials — clean mitered corners. */
+/**
+ * GLB/Android: exact paper-size poster. Optional 1m calibration bounds only
+ * when the paper is smaller than 1m so Scene Viewer does not upscale A4 to
+ * ~1m (which made A4 and B0 look identical). Never use a 2m box — that made
+ * B0 appear ~half size (~20in instead of ~39in).
+ */
 function createGLBScene(frame: FrameContext) {
-  const { THREE, wM, finalH, frontMat, backMat, edgeMat, angleDeg, levelDeg, pitchDeg } = frame;
+  const { THREE, wM, hM, frontMat, backMat, edgeMat, angleDeg, levelDeg, pitchDeg } = frame;
   const scene = new THREE.Scene();
-  const mesh = new THREE.Mesh(
-    new THREE.BoxGeometry(wM, finalH, FRAME_DEPTH_M),
+  const root = new THREE.Group();
+  root.name = "arPosterRoot";
+
+  const poster = new THREE.Mesh(
+    new THREE.BoxGeometry(wM, hM, FRAME_DEPTH_M),
     [edgeMat, edgeMat, edgeMat, edgeMat, frontMat, backMat],
   );
-  applyFrameTilt(mesh, THREE, angleDeg, pitchDeg, levelDeg);
-  scene.add(mesh);
+  poster.name = "arPoster";
+  applyFrameTilt(poster, THREE, angleDeg, pitchDeg, levelDeg);
+  root.add(poster);
+
+  const longest = Math.max(wM, hM);
+  if (longest < AR_CALIBRATION_EXTENT_M - 0.001) {
+    const calib = new THREE.Mesh(
+      new THREE.BoxGeometry(AR_CALIBRATION_EXTENT_M, AR_CALIBRATION_EXTENT_M, 0.0001),
+      new THREE.MeshBasicMaterial({
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+        colorWrite: false,
+      }),
+    );
+    calib.name = "arSizeCalibration1m";
+    calib.visible = false;
+    root.add(calib);
+  }
+
+  scene.add(root);
   return scene;
 }
 
@@ -404,9 +472,9 @@ function createGLBScene(frame: FrameContext) {
  * GLB/Android unchanged in createGLBScene.
  */
 function createUSDZScene(frame: FrameContext) {
-  const { THREE, wM, finalH, frontMat } = frame;
+  const { THREE, wM, hM, frontMat } = frame;
   const scene = new THREE.Scene();
-  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(wM, finalH), frontMat);
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(wM, hM), frontMat);
   scene.add(mesh);
   return scene;
 }
@@ -425,7 +493,7 @@ async function exportGLB(scene: ReturnType<typeof createGLBScene>): Promise<Buff
         }
       },
       (err: Error) => reject(err),
-      { binary: true, embedImages: true }
+      { binary: true, embedImages: true, onlyVisible: false },
     );
   });
 }

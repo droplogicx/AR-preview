@@ -2,33 +2,35 @@
 
 client_id = "7a2f1862b0cf332727684e9ae116290f"
 name = "AR Preview test"
-application_url = "https://disclose-labs-dec-pace.trycloudflare.com"
+application_url = "https://diana-spine-laser-oxide.trycloudflare.com"
 embedded = true
-
-[build]
-automatically_update_urls_on_dev = true
 
 [webhooks]
 api_version = "2026-10"
 
   [[webhooks.subscriptions]]
-  uri = "/webhooks/app/uninstalled"
-  topics = [ "app/uninstalled" ]
-
-  [[webhooks.subscriptions]]
   uri = "/webhooks/app/scopes_update"
   topics = [ "app/scopes_update" ]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/app/uninstalled"
+  topics = [ "app/uninstalled" ]
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
 scopes = "read_files,read_products"
 
 [auth]
-redirect_urls = [
-  "https://disclose-labs-dec-pace.trycloudflare.com/api/auth"
-]
+redirect_urls = [ "https://diana-spine-laser-oxide.trycloudflare.com/api/auth" ]
 
+# Theme hardcodes /apps/ar-preview. If production "AR Preview" is also
+# installed on the same store, THAT app owns the proxy → old server.
+# For local size testing on a store that has production installed, run:
+#   shopify app dev --config shopify.app.toml
 [app_proxy]
-url = "https://disclose-labs-dec-pace.trycloudflare.com/proxy"
+url = "https://diana-spine-laser-oxide.trycloudflare.com/proxy"
 subpath = "ar-preview"
 prefix = "apps"
+
+[build]
+automatically_update_urls_on_dev = true

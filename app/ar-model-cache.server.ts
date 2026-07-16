@@ -29,8 +29,10 @@ export function normalizeModelPath(raw: string): string {
     }
   }
 
-  if (!value.startsWith("/api/ar-model/file/")) return "";
-  const name = value.slice("/api/ar-model/file/".length);
-  if (!/^[\w-]+\.(usdz|glb)$/.test(name)) return "";
+  const pathOnly = value.split("?")[0].split("#")[0];
+  if (!pathOnly.startsWith("/api/ar-model/file/")) return "";
+  const name = pathOnly.slice("/api/ar-model/file/".length);
+  // Allow hash_60x84.glb style names (dims embedded for size debugging).
+  if (!/^[\w.-]+\.(usdz|glb)$/.test(name)) return "";
   return `/api/ar-model/file/${name}`;
 }
