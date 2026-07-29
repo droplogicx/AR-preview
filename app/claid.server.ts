@@ -1,10 +1,20 @@
 const CLAID_EDIT_URL = "https://api.claid.ai/v1/image/edit";
 const CLAID_UPLOAD_URL = "https://api.claid.ai/v1/image/edit/upload";
 
+type ResizeDimension = number | "auto" | `${number}%`;
+type ResizeFit = "bounds" | "cover" | "canvas" | "crop" | "outpaint";
+
+type ResizeOptions = {
+  width?: ResizeDimension;
+  height?: ResizeDimension;
+  fit?: ResizeFit;
+};
+
 export type EnhanceOptions = {
   polish?: boolean;
   upscale?: "smart_enhance" | "smart_resize" | "faces" | "digital_art" | "photo" | null;
   decompress?: "moderate" | "strong" | "auto" | null;
+  resizing?: ResizeOptions;
   format?: "jpeg" | "png" | "avif";
   quality?: number;
   sharpness?: number;
@@ -56,6 +66,49 @@ const UPSCALE_VALUES = new Set([
 
 const DECOMPRESS_VALUES = new Set(["moderate", "strong", "auto"]);
 const FORMAT_VALUES = new Set(["jpeg", "png", "avif"]);
+const RESIZE_FIT_VALUES = new Set(["bounds", "cover", "canvas", "crop", "outpaint"]);
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function parseResizeDimension(value: unknown): ResizeDimension | undefined {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return Math.round(value);
+  }
+
+  if (typeof value !== "string") return undefined;
+  const raw = value.trim().toLowerCase();
+  if (raw === "auto") return "auto";
+  // Percentage (e.g. "50%")
+  if (/^\d+(?:\.\d+)?%$/.test(raw) && Number.parseFloat(raw) > 0) {
+    return raw as `${number}%`;
+  }
+  // Plain numeric strings (e.g. "2000") -> treat as pixels
+  if (/^\d+(?:\.\d+)?$/.test(raw)) {
+    const n = Number.parseFloat(raw);
+    if (Number.isFinite(n) && n > 0) return Math.round(n);
+  }
+  return undefined;
+}
+
+function parseResizeOptions(value: unknown): ResizeOptions | undefined {
+  const raw = asRecord(value);
+  if (!raw) return undefined;
+
+  const resizing: ResizeOptions = {};
+  const width = parseResizeDimension(raw.width);
+  const height = parseResizeDimension(raw.height);
+  if (width !== undefined) resizing.width = width;
+  if (height !== undefined) resizing.height = height;
+  if (typeof raw.fit === "string" && RESIZE_FIT_VALUES.has(raw.fit)) {
+    resizing.fit = raw.fit as ResizeFit;
+  }
+
+  return Object.keys(resizing).length > 0 ? resizing : undefined;
+}
 
 export function parseEnhanceOptions(input: unknown): EnhanceOptions {
   if (!input || typeof input !== "object") {
@@ -63,22 +116,29 @@ export function parseEnhanceOptions(input: unknown): EnhanceOptions {
   }
 
   const raw = input as Record<string, unknown>;
+  const operations = asRecord(raw.operations);
+  const restorations = asRecord(operations?.restorations);
   const options: EnhanceOptions = { ...DEFAULT_OPTIONS };
 
-  const polish = parseBoolean(raw.polish);
+  const polish = parseBoolean(raw.polish ?? restorations?.polish);
   if (polish !== undefined) options.polish = polish;
 
-  if (typeof raw.upscale === "string" && UPSCALE_VALUES.has(raw.upscale)) {
-    options.upscale = raw.upscale as EnhanceOptions["upscale"];
-  } else if (raw.upscale === null) {
+  const upscale = raw.upscale ?? restorations?.upscale;
+  if (typeof upscale === "string" && UPSCALE_VALUES.has(upscale)) {
+    options.upscale = upscale as EnhanceOptions["upscale"];
+  } else if (upscale === null) {
     options.upscale = null;
   }
 
-  if (typeof raw.decompress === "string" && DECOMPRESS_VALUES.has(raw.decompress)) {
-    options.decompress = raw.decompress as EnhanceOptions["decompress"];
-  } else if (raw.decompress === null) {
+  const decompress = raw.decompress ?? restorations?.decompress;
+  if (typeof decompress === "string" && DECOMPRESS_VALUES.has(decompress)) {
+    options.decompress = decompress as EnhanceOptions["decompress"];
+  } else if (decompress === null) {
     options.decompress = null;
   }
+
+  const resizing = parseResizeOptions(raw.resizing ?? operations?.resizing);
+  if (resizing) options.resizing = resizing;
 
   if (typeof raw.format === "string" && FORMAT_VALUES.has(raw.format)) {
     options.format = raw.format as EnhanceOptions["format"];
@@ -123,6 +183,9 @@ function buildClaidPayload(options: EnhanceOptions, input?: string) {
   };
   if (Object.keys(adjustments).length > 0) {
     operations.adjustments = adjustments;
+  }
+  if (options.resizing) {
+    operations.resizing = options.resizing;
   }
 
   const payload: Record<string, unknown> = {
@@ -278,6 +341,18 @@ export function parseEnhanceOptionsFromFormData(formData: FormData): EnhanceOpti
       return parseEnhanceOptions(JSON.parse(rawOptions));
     } catch {
       throw new Error("Invalid JSON in options field");
+    }
+  }
+
+  // Support legacy or alternative clients that send only the `operations` JSON.
+  // If `operations` is provided as a JSON string, treat it as { operations: ... }.
+  const rawOperations = formData.get("operations");
+  if (typeof rawOperations === "string" && rawOperations.trim()) {
+    try {
+      const ops = JSON.parse(rawOperations);
+      return parseEnhanceOptions({ operations: ops });
+    } catch {
+      throw new Error("Invalid JSON in operations field");
     }
   }
 

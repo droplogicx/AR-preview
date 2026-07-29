@@ -31,6 +31,10 @@ export async function loader({
   request: Request;
   params: { "*"?: string };
 }) {
+  if (request.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: CORS });
+  }
+
   await verifyProxy(request);
   const subpath = (params["*"] || "").replace(/^\//, "");
 
@@ -85,6 +89,10 @@ export async function action({
   request: Request;
   params: { "*"?: string };
 }) {
+  if (request.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: CORS });
+  }
+
   await verifyProxy(request);
   const subpath = (params["*"] || "").replace(/^\//, "");
 

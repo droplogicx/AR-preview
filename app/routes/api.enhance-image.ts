@@ -1,5 +1,5 @@
 // POST /api/enhance-image
-// JSON: { imageUrl, image, polish, upscale, quality, format, ... }
+// JSON: { imageUrl, image, operations: { restorations, resizing }, polish, upscale, quality, format, ... }
 // multipart/form-data: file=<image> + optional options JSON or individual fields
 
 import {
@@ -21,9 +21,21 @@ function errorResponse(message: string, status = 500) {
   return Response.json({ error: message }, { status, headers: CORS });
 }
 
+function optionsResponse() {
+  return new Response(null, { status: 204, headers: CORS });
+}
+
+export async function loader({ request }: { request: Request }) {
+  if (request.method === "OPTIONS") {
+    return optionsResponse();
+  }
+
+  return errorResponse("Method not allowed", 405);
+}
+
 export async function action({ request }: { request: Request }) {
   if (request.method === "OPTIONS") {
-    return new Response(null, { status: 204, headers: CORS });
+    return optionsResponse();
   }
 
   if (request.method !== "POST") {
