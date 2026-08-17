@@ -46,6 +46,8 @@ export async function loader({
       return Response.json(
         {
           enabled: true,
+          customMatch: false,
+          customProducts: "",
           imageMode: "default",
           imageAlt: "",
           width: 60,

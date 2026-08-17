@@ -1,4 +1,8 @@
-{% if template == 'product' and product != blank %}
+{% comment %}
+  App embed: enable once under Theme settings → App embeds.
+  Covers ALL product templates (including upload-your-own alternates).
+{% endcomment %}
+{% if request.page_type == 'product' and product != blank %}
 
   {% assign feat   = product.featured_image %}
   {% if feat != blank %}
@@ -13,6 +17,7 @@
 
   <div id="ar-root"
     data-product-id="{{ product.id }}"
+    data-product-handle="{{ product.handle | escape }}"
     data-tags="{{ product.tags | join: ',' | escape }}"
     data-title="{{ title }}"
     data-img="{{ img }}"
@@ -93,7 +98,6 @@
 {
   "name": "VR Viewer",
   "target": "body",
-  "templates": ["product"],
   "settings": []
 }
 {% endschema %}

@@ -22,8 +22,8 @@ export const action = async ({ request }) => {
   const mode = formData.get("mode");
   const imageMode = formData.get("imageMode");
   const imageAlt = formData.get("imageAlt") || "";
+  const customProducts = formData.get("customProducts") || "";
   let collections = [];
-
   try {
     collections = JSON.parse(
       formData.get("collections") || formData.get("products") || "[]",
@@ -53,6 +53,7 @@ export const action = async ({ request }) => {
       })),
       imageMode,
       imageAlt,
+      customProducts,
     });
     return { ok: true, ...settings };
   } catch (error) {
@@ -100,6 +101,38 @@ function normalizeImagePrefs(imageMode, imageAlt) {
     imageMode: isAlt ? "specific" : "default",
     imageAlt: isAlt ? String(imageAlt || "").trim() : "",
   };
+}
+
+function normalizeCustomProducts(raw) {
+  const seen = new Set();
+  return String(raw || "")
+    .split(",")
+    .map((part) => {
+      let handle = String(part || "").trim();
+      if (!handle) return "";
+      try {
+        if (/^https?:\/\//i.test(handle) || handle.startsWith("//")) {
+          const url = new URL(handle.startsWith("//") ? `https:${handle}` : handle);
+          handle = url.pathname;
+        }
+      } catch {
+        // keep fragment
+      }
+      handle = handle
+        .replace(/^\/+/, "")
+        .replace(/^products\//i, "")
+        .replace(/\/+$/, "")
+        .split(/[?#]/)[0]
+        .trim()
+        .toLowerCase();
+      return handle;
+    })
+    .filter((handle) => {
+      if (!handle || seen.has(handle)) return false;
+      seen.add(handle);
+      return true;
+    })
+    .join(", ");
 }
 
 function DeleteIcon() {
@@ -160,13 +193,14 @@ export default function Index() {
     collections: loaderData.products,
     imageMode: loaderData.imageMode || "default",
     imageAlt: loaderData.imageAlt || "",
+    customProducts: loaderData.customProducts || "",
   });
 
   const [mode, setMode] = useState(loaderData.mode);
   const [collections, setCollections] = useState(loaderData.products);
   const [imageMode, setImageMode] = useState(loaderData.imageMode || "default");
   const [imageAlt, setImageAlt] = useState(loaderData.imageAlt || "");
-
+  const [customProducts, setCustomProducts] = useState(loaderData.customProducts || "");
   const isSaving =
     fetcher.state === "submitting" || fetcher.state === "loading";
   const incompleteAltText =
@@ -190,7 +224,14 @@ export default function Index() {
     return JSON.stringify(current) !== JSON.stringify(saved);
   }, [mode, collections, savedSettings.mode, savedSettings.collections]);
 
-  const isDirty = isVisibilityDirty || isImageSettingsDirty;
+  const isCustomProductsDirty = useMemo(() => {
+    return (
+      normalizeCustomProducts(customProducts) !==
+      normalizeCustomProducts(savedSettings.customProducts)
+    );
+  }, [customProducts, savedSettings.customProducts]);
+
+  const isDirty = isVisibilityDirty || isImageSettingsDirty || isCustomProductsDirty;
   const canSave = isDirty && !incompleteAltText && !isSaving;
 
   useEffect(() => {
@@ -200,12 +241,14 @@ export default function Index() {
         collections: fetcher.data.products,
         imageMode: fetcher.data.imageMode || "default",
         imageAlt: fetcher.data.imageAlt || "",
+        customProducts: fetcher.data.customProducts || "",
       };
       setSavedSettings(next);
       setMode(fetcher.data.mode);
       setCollections(fetcher.data.products);
       setImageMode(fetcher.data.imageMode || "default");
       setImageAlt(fetcher.data.imageAlt || "");
+      setCustomProducts(fetcher.data.customProducts || "");
       shopify.toast.show("AR Viewer settings saved");
     } else if (fetcher.data?.error) {
       shopify.toast.show(fetcher.data.error, { isError: true });
@@ -218,15 +261,17 @@ export default function Index() {
     formData.set("collections", JSON.stringify(collections));
     formData.set("imageMode", imageMode);
     formData.set("imageAlt", imageAlt);
+    formData.set("customProducts", customProducts);
 
     fetcher.submit(formData, { method: "post" });
-  }, [fetcher, mode, collections, imageMode, imageAlt]);
+  }, [fetcher, mode, collections, imageMode, imageAlt, customProducts]);
 
   const handleDiscard = useCallback(() => {
     setMode(savedSettings.mode);
     setCollections(savedSettings.collections);
     setImageMode(savedSettings.imageMode || "default");
     setImageAlt(savedSettings.imageAlt || "");
+    setCustomProducts(savedSettings.customProducts || "");
   }, [savedSettings]);
 
   const pickCollections = useCallback(async () => {
@@ -288,6 +333,15 @@ export default function Index() {
           onClick={() => setActiveTab("images")}
         >
           AR images
+        </button>
+        <button
+          type="button"
+          className={`${styles.tabButton} ${
+            activeTab === "custom-products" ? styles.tabButtonActive : ""
+          }`}
+          onClick={() => setActiveTab("custom-products")}
+        >
+          Custom Products
         </button>
       </div>
 
@@ -363,7 +417,9 @@ export default function Index() {
             </s-section>
           )}
         </div>
-      ) : (
+      ) : null}
+      
+      {activeTab === "images" ? (
         <s-section heading="Which product image should AR use?">
           <s-paragraph>
             Choose the image shown in the VR viewer on product pages. When using
@@ -417,14 +473,35 @@ export default function Index() {
             </div>
           ) : null}
         </s-section>
-      )}
+      ) : null}
+      {/* Custom Products */}
+      {activeTab === "custom-products" ? (
+        <s-section heading="Custom Products">
+          <s-paragraph>
+            Add product page handles separated by commas. These are saved to
+            your shop settings for use with custom product pages.
+          </s-paragraph>
+          <div style={{ marginTop: "8px", maxWidth: "640px" }}>
+            <s-text-field
+              label="Product handles"
+              value={customProducts}
+              onChange={(e) => setCustomProducts(e.currentTarget.value)}
+              placeholder="e.g. oak-frame-poster, black-frame-print, coastal-waves"
+              details="Use the product handle from the product URL (/products/your-handle). Separated by commas."
+              autocomplete="off"
+              disabled={isSaving}
+            />
+          </div>
+        </s-section>
+      ) : null}
 
       <s-section slot="aside" heading="Theme setup">
         <s-paragraph>
-          Add the <strong>VR Viewer</strong> app block to your product template
+        Add the <strong>VR Viewer</strong> app block to your product template
           in the theme editor. The block will only render on products in the
           selected collections.
         </s-paragraph>
+        
       </s-section>
     </s-page>
   );

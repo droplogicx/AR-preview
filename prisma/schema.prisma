@@ -34,11 +34,12 @@ model Session {
 }
 
 model ArViewerSettings {
-  shop      String   @id
-  mode      String   @default("all")
-  imageMode String   @default("default")
-  imageAlt  String?
-  updatedAt DateTime @updatedAt
+  shop           String   @id
+  mode           String   @default("all")
+  imageMode      String   @default("default")
+  imageAlt       String?
+  customProducts String   @default("")
+  updatedAt      DateTime @updatedAt
 }
 
 model ArViewerProduct {

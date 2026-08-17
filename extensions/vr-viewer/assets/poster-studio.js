@@ -8,13 +8,37 @@
 (function () {
   'use strict';
 
+  try {
+    console.log('[PosterStudio] js file executing');
+  } catch (e0) { /* ignore */ }
+
   var root = document.getElementById('ps-root');
-  if (!root) return;
+  if (!root) {
+    try {
+      console.warn('[PosterStudio] #ps-root missing — block/embed did not render on this page');
+    } catch (e1) { /* ignore */ }
+    return;
+  }
+
+  if (window.__posterStudioBooted) {
+    try {
+      console.warn('[PosterStudio] already booted — skipping duplicate script');
+    } catch (e2) { /* ignore */ }
+    return;
+  }
+  window.__posterStudioBooted = true;
 
   /* ---------------------------------------------------------------- config */
   var viewerSrc = root.dataset.viewerSrc || '';
   var productTitle = root.dataset.title || 'Product artwork';
   var productId = root.dataset.productId || '';
+  var productHandle = String(root.dataset.productHandle || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^\/+/, '')
+    .replace(/^products\//i, '')
+    .replace(/\/+$/, '')
+    .split(/[?#]/)[0];
   var backendBase = (root.dataset.backend || '/apps/ar-preview').replace(/\/+$/, '');
 
   var FRAME_COLORS = {
@@ -39,7 +63,9 @@
   };
 
   /* Where the theme keeps its product media. Ordered from most- to
-   * least-specific; the first host that yields a usable image wins. */
+   * least-specific; the first host that yields a usable image wins.
+   * Custom-product pages never use this list — they only convert
+   * #custom-product-image via the 5s refresh loop. */
   var HOST_SELECTORS = [
     '[data-product-photos]',                 // Impulse
     '.product-slideshow',                    // Impulse
@@ -58,7 +84,7 @@
   ];
   /* The tight cell that wraps a single media item. */
   var MEDIA_CELL_SELECTORS =
-    '.product-main-slide, [data-product-image-main], .product-image-main, .image-wrap, ' +   // Impulse
+    '#custom-product-image, .product-main-slide, [data-product-image-main], .product-image-main, .image-wrap, ' +   // Impulse + custom upload
     '.product__media, .product__media-item, .product-media-container, ' +
     '.product-gallery__media, slideshow-slide, .slideshow__slide, ' +
     '.slider__slide, .media, [data-media-id]';
@@ -87,7 +113,33 @@
   var lastSignature = '';
   var loadTimer = null;
   var pollTimer = null;
+  var customRefreshTimer = null;
+  var lastCustomImageKey = '';
   var observer = null;
+  var customRefreshCount = 0;
+  var customRefreshScheduled = false;
+  var customConvertInFlight = false;
+
+  function psLog() {
+    try {
+      var args = ['[PosterStudio]'].concat([].slice.call(arguments));
+      console.log.apply(console, args);
+    } catch (e) { /* ignore */ }
+  }
+
+  function psWarn() {
+    try {
+      var args = ['[PosterStudio]'].concat([].slice.call(arguments));
+      console.warn.apply(console, args);
+    } catch (e) { /* ignore */ }
+  }
+
+  psLog('script loaded', {
+    productId: productId,
+    productHandle: productHandle,
+    backendBase: backendBase,
+    viewerSrc: !!viewerSrc
+  });
 
   /* ================================================================ utils */
   function toSecureUrl(url) {
@@ -110,6 +162,67 @@
     if (!img) return '';
     return toSecureUrl(img.currentSrc || img.src ||
       img.getAttribute('src') || img.getAttribute('data-src') || '');
+  }
+
+  /* The 3D engine loads its texture with a *separate* network fetch of the
+   * image src (crossOrigin="anonymous"), completely independent of the
+   * <img> already decoded and on-screen. For #custom-product-image that
+   * second fetch commonly fails even though the visible image is fine:
+   *   - the src is a blob: URL that the theme's crop tool has already
+   *     revoked (URL.revokeObjectURL) once the <img> finished rendering it
+   *   - the src is served cross-origin without CORS headers, so the
+   *     browser will display it in an <img> but refuse a crossOrigin
+   *     fetch of it
+   * When that happens the engine silently swaps in a placeholder texture
+   * ("Cropped Image / Image preview unavailable") instead of failing
+   * loudly — the frame still builds, just with blank art.
+   *
+   * Fix: read the pixels straight out of the already-loaded <img> via a
+   * canvas and hand the engine a data: URL instead. No extra network
+   * request, so it's immune to both cases above. Falls back to the raw
+   * src (previous behaviour) if the canvas turns out tainted — i.e. the
+   * image is genuinely cross-origin and CORS-blocked even for on-screen
+   * rendering purposes, which a data: URL trick can't fix; that needs a
+   * CORS header fix on whatever host serves the cropped image.
+   *
+   * Separately: print-resolution uploads (a 24x36in poster at 300dpi is
+   * ~7200x10800px, 78 megapixels) can fail here for a completely different
+   * reason that has nothing to do with CORS — browsers cap canvas
+   * dimensions/area (Safari especially), and toDataURL() on something
+   * that big has to hold the whole bitmap in memory uncompressed (78MP
+   * RGBA ≈ 300MB+), which can silently fail, throw, or hang the tab. The
+   * WebGL texture is only ever displayed at on-screen sizes, so there is
+   * no benefit to snapshotting at full print resolution — downscale to a
+   * sane cap first. JPEG (not PNG) keeps the resulting data: URL small
+   * for photographic art; these images don't need an alpha channel. */
+  var CUSTOM_IMAGE_MAX_DIM = 2048;
+  var customImageDataUrlCache = { key: '', dataUrl: '' };
+  function customImageDataUrl(img, rawSrc) {
+    if (!img || !img.naturalWidth || !img.naturalHeight) return '';
+    if (customImageDataUrlCache.key === rawSrc) return customImageDataUrlCache.dataUrl;
+    var dataUrl = '';
+    try {
+      var iw = img.naturalWidth, ih = img.naturalHeight;
+      var scale = Math.min(1, CUSTOM_IMAGE_MAX_DIM / Math.max(iw, ih));
+      var cw = Math.max(1, Math.round(iw * scale));
+      var ch = Math.max(1, Math.round(ih * scale));
+      var c = document.createElement('canvas');
+      c.width = cw;
+      c.height = ch;
+      c.getContext('2d').drawImage(img, 0, 0, cw, ch);
+      dataUrl = c.toDataURL('image/jpeg', 0.92);
+      psLog('customImageDataUrl: snapshotted', {
+        originalPx: iw + 'x' + ih, scaledPx: cw + 'x' + ch, dataUrlKB: Math.round(dataUrl.length / 1024)
+      });
+    } catch (e) {
+      psWarn('customImageDataUrl: canvas is tainted (cross-origin image without CORS headers) — ' +
+        'falling back to the raw src, which the 3D engine may fail to (re)fetch. ' +
+        'Fix: serve #custom-product-image with proper CORS headers (Access-Control-Allow-Origin) ' +
+        'and, if it is cross-origin, set crossorigin="anonymous" on the <img> itself.', rawSrc);
+      dataUrl = '';
+    }
+    customImageDataUrlCache = { key: rawSrc, dataUrl: dataUrl };
+    return dataUrl;
   }
 
   function isVisible(el) {
@@ -260,37 +373,38 @@
   function currentPayload() {
     var url, w, h, alt;
 
-    // When /api/settings pins a specific framed image, prefer that URL for the
-    // 3D texture (same as AR Viewer), while still overlaying on the matched DOM img.
-    var eligible = settingsEligibleImage();
-    if (eligible && eligible.src) {
-      url = eligible.src;
-      w = eligible.width || 0;
-      h = eligible.height || 0;
-      alt = eligible.alt || productTitle;
-      if ((!w || !h) && primaryImage) {
-        var er = primaryImage.getBoundingClientRect();
-        w = w || primaryImage.naturalWidth || Math.round(er.width) || 1;
-        h = h || primaryImage.naturalHeight || Math.round(er.height) || 1;
-      }
-    } else if (primaryImage && imageSrc(primaryImage)) {
-      // Prefer the image the theme is actually showing (WYSIWYG); fall back to
-      // the selected variant image, then the product featured image.
-      var rect = primaryImage.getBoundingClientRect();
-      url = imageSrc(primaryImage);
-      w = primaryImage.naturalWidth || Math.round(rect.width) || 1;
-      h = primaryImage.naturalHeight || Math.round(rect.height) || 1;
-      alt = primaryImage.alt;
+    // Custom-product handle match: use #custom-product-image as-is (no alt checks).
+    if (isCustomProductMatch()) {
+      var rawCustomSrc = imageSrc(primaryImage);
+      if (!primaryImage || !rawCustomSrc) return null;
+      var customRect = primaryImage.getBoundingClientRect();
+      url = customImageDataUrl(primaryImage, rawCustomSrc) || rawCustomSrc;
+      w = primaryImage.naturalWidth || Math.round(customRect.width) || 1;
+      h = primaryImage.naturalHeight || Math.round(customRect.height) || 1;
+      alt = primaryImage.alt || productTitle;
     } else {
-      var variant = selectedVariant();
-      if (variant && variant.featured_image && variant.featured_image.src) {
-        url = variant.featured_image.src;
-        w = variant.featured_image.width;
-        h = variant.featured_image.height;
+      // Tag match required — never convert unmatched gallery images.
+      if (!hasImageTagTarget()) return null;
+
+      var eligible = settingsEligibleImage();
+      if (eligible && eligible.src) {
+        url = eligible.src;
+        w = eligible.width || 0;
+        h = eligible.height || 0;
+        alt = eligible.alt || productTitle;
+        if ((!w || !h) && primaryImage) {
+          var er = primaryImage.getBoundingClientRect();
+          w = w || primaryImage.naturalWidth || Math.round(er.width) || 1;
+          h = h || primaryImage.naturalHeight || Math.round(er.height) || 1;
+        }
+      } else if (primaryImage && imageSrc(primaryImage) && imageAllowedBySettings(primaryImage)) {
+        var rect = primaryImage.getBoundingClientRect();
+        url = imageSrc(primaryImage);
+        w = primaryImage.naturalWidth || Math.round(rect.width) || 1;
+        h = primaryImage.naturalHeight || Math.round(rect.height) || 1;
+        alt = primaryImage.alt;
       } else {
-        url = root.dataset.img || '';
-        w = parseInt(root.dataset.imgW || '0', 10) || 1;
-        h = parseInt(root.dataset.imgH || '0', 10) || 1;
+        return null;
       }
     }
 
@@ -338,7 +452,8 @@
   }
 
   /* settingsData.imageAlt is a comma-separated list of keywords (e.g.
-   * "frame,framed") — same rules as the proxy resolveArImageByAlt helper. */
+   * "frame,framed") — same token/exact rules as resolveArImageByAlt.
+   * Avoid substring matches so unrelated gallery alts are not converted. */
   function altMatchesKeywords(altText, keywordCsv) {
     var alt = String(altText || '').trim().toLowerCase();
     if (!alt || !keywordCsv) return false;
@@ -353,11 +468,50 @@
       .map(function (k) { return k.trim().toLowerCase(); })
       .filter(Boolean);
     for (var i = 0; i < keywords.length; i++) {
-      var kw = keywords[i];
-      if (altTokens.indexOf(kw) !== -1) return true;
-      if (alt.indexOf(kw) !== -1) return true;
+      if (altTokens.indexOf(keywords[i]) !== -1) return true;
     }
     return false;
+  }
+
+  /* Poster Studio only converts images whose alt matches settings tags
+   * (or the resolved imageUrl). No tags / no match → convert nothing.
+   * Exception: custom-product handle match skips alt checks entirely. */
+  function configuredImageAlt() {
+    return String((settingsData && settingsData.imageAlt) || '').trim();
+  }
+
+  function configuredImageUrl() {
+    return String((settingsData && settingsData.imageUrl) || '').trim();
+  }
+
+  function isCustomProductMatch() {
+    if (settingsData && settingsData.customMatch) return true;
+    if (!productHandle || !settingsData || !settingsData.customProducts) return false;
+    var handles = String(settingsData.customProducts).split(',')
+      .map(function (h) {
+        return String(h || '').trim().toLowerCase()
+          .replace(/^\/+/, '')
+          .replace(/^products\//i, '');
+      })
+      .filter(Boolean);
+    return handles.indexOf(productHandle) !== -1;
+  }
+
+  function debugCustomDomSnapshot() {
+    var img = findCustomProductImage();
+    var host = findCustomProductHost(img);
+    return {
+      customProductImage: !!img,
+      hostTag: host ? String(host.tagName || '').toLowerCase() : '',
+      hostClass: host ? String(host.className || '') : '',
+      imgId: img ? String(img.id || '') : '',
+      imgSrc: img ? (img.currentSrc || img.src || img.getAttribute('src') || '').slice(0, 160) : ''
+    };
+  }
+
+  function hasImageTagTarget() {
+    if (isCustomProductMatch()) return true;
+    return !!(configuredImageAlt() || configuredImageUrl());
   }
 
   function findProductDataImageByAlt(keywordCsv) {
@@ -382,16 +536,19 @@
     return null;
   }
 
-  /* Eligible framed image from /api/settings (same source as AR Viewer). */
+  /* Eligible image: first product image whose alt matches the configured tags. */
   function settingsEligibleImage() {
-    if (!settingsData || settingsData.imageMode !== 'specific') return null;
-    var matched = findProductDataImageByAlt(settingsData.imageAlt);
+    if (!hasImageTagTarget()) return null;
+    var matched = findProductDataImageByAlt(configuredImageAlt());
     if (matched && matched.src) return matched;
-    if (settingsData.imageUrl) {
+    var url = configuredImageUrl();
+    if (url) {
+      var byUrl = findProductDataImageByUrl(url);
+      if (byUrl && byUrl.src) return byUrl;
       return {
-        src: settingsData.imageUrl,
-        thumb: settingsData.imageThumb || settingsData.imageUrl,
-        alt: settingsData.imageAlt || '',
+        src: url,
+        thumb: (settingsData && settingsData.imageThumb) || url,
+        alt: configuredImageAlt() || '',
         width: 0,
         height: 0
       };
@@ -399,10 +556,14 @@
     return null;
   }
 
-  /* Only restrict which image we cover when the backend explicitly says so
-   * (imageMode === "specific"). Keywords / imageUrl come from /api/settings. */
+  /* Strict: only tagged images — unless this is a custom-product handle match. */
   function imageAllowedBySettings(img) {
-    if (!settingsData || settingsData.imageMode !== 'specific') return true;
+    if (isCustomProductMatch()) return true;
+    if (!hasImageTagTarget()) return false;
+
+    if (configuredImageAlt() && altMatchesKeywords(img.alt, configuredImageAlt())) {
+      return true;
+    }
 
     var eligible = settingsEligibleImage();
     if (eligible && eligible.src) {
@@ -412,24 +573,92 @@
       }
     }
 
-    var targetUrl = normalizeImgUrlForMatch(settingsData.imageUrl);
+    var targetUrl = normalizeImgUrlForMatch(configuredImageUrl());
     if (targetUrl && normalizeImgUrlForMatch(imageSrc(img)) === targetUrl) return true;
-
-    if (altMatchesKeywords(img.alt, settingsData.imageAlt)) return true;
 
     return false;
   }
 
-  function isProductImage(img, host) {
-    if (!img || !host || !host.contains(img)) return false;
+  function isUsablePreviewImage(img) {
+    if (!img) return false;
     if (img.closest('#ps-root, script, template, .ps-overlay')) return false;
     if (!isVisible(img)) return false;
     var r = img.getBoundingClientRect();
-    if (r.width < 150 || r.height < 150) return false;
+    // Custom cropped previews can be a bit smaller than gallery heroes.
+    var minSide = isCustomProductMatch() ? 80 : 150;
+    if (r.width < minSide || r.height < minSide) return false;
     var src = imageSrc(img);
     if (!src || /sprite|icon|logo|placeholder|transparent|blank/i.test(src)) return false;
+    return true;
+  }
+
+  function isProductImage(img, host) {
+    if (!img || !host || !host.contains(img)) return false;
+    if (!isUsablePreviewImage(img)) return false;
     if (!imageAllowedBySettings(img)) return false;
     return true;
+  }
+
+  /* Custom product pages — ONLY #custom-product-image (not Shopify gallery).
+   * Appears after the storefront upload flow injects / updates the preview.
+   * Mount the 3D overlay on its nearest positioned parent. */
+  function findCustomProductImage() {
+    if (!isCustomProductMatch()) return null;
+
+    var img = document.getElementById('custom-product-image');
+    if (!img || String(img.tagName || '').toUpperCase() !== 'IMG') {
+      // Fallback for older custom templates that used cropped-preview.
+      img = document.querySelector('img.cropped-preview');
+    }
+
+    if (!img) return null;
+    if (img.closest('#ps-root, script, template, .ps-overlay')) return null;
+
+    var src = imageSrc(img);
+    if (!src) return null;
+    if (/sprite|icon|logo|placeholder|transparent|blank|data:image\/gif/i.test(src)) {
+      return null;
+    }
+    return img;
+  }
+
+  function findCustomProductHost(img) {
+    if (!img) img = findCustomProductImage();
+    if (!img) return null;
+    // Prefer a tight frame wrap when present; otherwise the img's parent.
+    var wrap = img.closest('.image-frame-wrap, .image-frame');
+    if (wrap) return wrap;
+    return img.parentElement;
+  }
+
+  function isCustomPreviewReady(img) {
+    if (!img) return false;
+    var src = imageSrc(img);
+    if (!src) return false;
+    if (img.naturalWidth > 0 && img.naturalHeight > 0) return true;
+    var r = img.getBoundingClientRect();
+    return r.width >= 40 && r.height >= 40;
+  }
+
+  function bindCustomPreviewLoad(img) {
+    if (!img || img.dataset.psLoadBound === '1') return;
+    img.dataset.psLoadBound = '1';
+    psLog('bindCustomPreviewLoad: waiting for img load event');
+    var onReady = function () {
+      // Keep the binding so later src swaps still refresh (src changes often).
+      var key = customImageKey(img);
+      if (key && key === lastCustomImageKey && (viewer || viewerBuilding || customConvertInFlight)) {
+        return;
+      }
+      psLog('bindCustomPreviewLoad: img load/error fired — refreshing', {
+        naturalWidth: img.naturalWidth,
+        naturalHeight: img.naturalHeight,
+        src: imageSrc(img).slice(0, 160)
+      });
+      scheduleCustomRefresh(true);
+    };
+    img.addEventListener('load', onReady);
+    img.addEventListener('error', onReady);
   }
 
   /* Many carousel-style galleries (Impulse's "starting-slide"/"secondary-slide"
@@ -447,6 +676,12 @@
   }
 
   function findPrimaryImage() {
+    // Custom handle match: NEVER convert product-gallery images — only
+    // #custom-product-image (uploaded / live custom preview).
+    if (isCustomProductMatch()) {
+      return findCustomProductImage();
+    }
+
     var best = null, bestScore = -Infinity, bestArea = 0, bestTop = Infinity;
     for (var i = 0; i < HOST_SELECTORS.length; i++) {
       var hosts = document.querySelectorAll(HOST_SELECTORS[i]);
@@ -474,6 +709,14 @@
   /* The tightest positioned wrapper around the image (so the overlay lines up
    * with the artwork, not the whole gallery column). */
   function findMediaCell(img) {
+    if (img && isCustomProductMatch()) {
+      var customHost = findCustomProductHost(img);
+      if (customHost) return customHost;
+    }
+    if (img) {
+      var frame = img.closest('.image-frame, .image-frame-wrap');
+      if (frame) return frame;
+    }
     var preferred = img.closest(MEDIA_CELL_SELECTORS);
     var ir = img.getBoundingClientRect();
     var node = preferred || img.parentElement;
@@ -555,13 +798,46 @@
     if (msg) showLoading(false);
   }
 
+  /* Tear down the 3D overlay so non-matching gallery images show normally. */
+  function detachOverlay() {
+    clearTimeout(loadTimer);
+    customConvertInFlight = false;
+    if (viewer) {
+      try { if (typeof viewer.dispose === 'function') viewer.dispose(); } catch (e) { }
+      viewer = null;
+    }
+    viewerBuilding = false;
+    lastSignature = '';
+    if (primaryImage) {
+      primaryImage.classList.remove('ps-img-hidden');
+      primaryImage = null;
+    }
+    if (overlay && overlay.parentElement) overlay.remove();
+    if (canvasHost) canvasHost.innerHTML = '';
+    if (mediaCell && cellPrevPosition !== null) {
+      mediaCell.style.position = cellPrevPosition;
+    }
+    mediaCell = null;
+    cellPrevPosition = null;
+  }
+
   /* Mount / re-mount the overlay onto the current image's cell. */
   function attachOverlay() {
     var img = findPrimaryImage();
     if (!img) return false;
 
     var cell = findMediaCell(img);
-    if (!cell) return false;
+    if (!cell) {
+      if (isCustomProductMatch()) psWarn('attachOverlay: found img but no media cell');
+      return false;
+    }
+
+    if (isCustomProductMatch()) {
+      psLog('attachOverlay: mounting on', {
+        cellClass: cell.className,
+        imgSrc: imageSrc(img).slice(0, 160)
+      });
+    }
 
     buildOverlay();
 
@@ -823,6 +1099,7 @@
     loadTimer = setTimeout(function () {
       if (!viewerBuilding) return;
       viewerBuilding = false;
+      customConvertInFlight = false;
       showError('3D preview timed out. Please refresh the page.');
     }, 20000);
 
@@ -849,6 +1126,7 @@
           frameMetalness: 0.1,
           onReady: function () {
             viewerBuilding = false;
+            customConvertInFlight = false;
             clearTimeout(loadTimer);
             showLoading(false);
             if (viewer && typeof viewer.resize === 'function') viewer.resize();
@@ -857,9 +1135,17 @@
         });
         lastSignature = signatureOf(payload);
         // safety: if onReady never fires, clear the spinner anyway
-        setTimeout(function () { if (viewer) { viewerBuilding = false; showLoading(false); clearTimeout(loadTimer); } }, 4000);
+        setTimeout(function () {
+          if (viewer) {
+            viewerBuilding = false;
+            customConvertInFlight = false;
+            showLoading(false);
+            clearTimeout(loadTimer);
+          }
+        }, 4000);
       } catch (err) {
         viewerBuilding = false;
+        customConvertInFlight = false;
         clearTimeout(loadTimer);
         showError('3D preview could not start on this page.');
         // eslint-disable-next-line no-console
@@ -868,6 +1154,7 @@
     }, function () {
       engineLoading = false;
       viewerBuilding = false;
+      customConvertInFlight = false;
       clearTimeout(loadTimer);
       showError('3D preview asset could not load.');
     });
@@ -900,10 +1187,34 @@
 
   /* ================================================= reconcile loop */
   function reconcile() {
-    if (!enabled) return;
-    if (!attachOverlay()) return;         // no product image on the page yet
+    if (!enabled) {
+      psLog('reconcile: skipped (disabled)');
+      return;
+    }
+    if (!attachOverlay()) {
+      if (isCustomProductMatch()) {
+        psLog('reconcile: attachOverlay failed — no primary image yet', debugCustomDomSnapshot());
+      }
+      detachOverlay();
+      return;
+    }
     var payload = currentPayload();
-    if (!payload) return;
+    if (!payload) {
+      psWarn('reconcile: no payload', {
+        customMatch: isCustomProductMatch(),
+        hasPrimary: !!primaryImage,
+        primarySrc: primaryImage ? imageSrc(primaryImage).slice(0, 120) : ''
+      });
+      detachOverlay();
+      return;
+    }
+    psLog('reconcile: payload ok', {
+      url: String(payload.url || '').slice(0, 160),
+      w: payload.width,
+      h: payload.height,
+      frameId: payload.frameId,
+      hasViewer: !!viewer
+    });
     if (!viewer) { ensureViewer(); return; }
     var sig = signatureOf(payload);
     if (sig !== lastSignature) { rebuildViewer(payload); return; }
@@ -915,6 +1226,109 @@
     if (reconcileScheduled) return;
     reconcileScheduled = true;
     setTimeout(function () { reconcileScheduled = false; reconcile(); }, 60);
+  }
+
+  function customImageKey(img) {
+    if (!img) return '';
+    return imageSrc(img);
+  }
+
+  /* Debounced entry for custom refresh — prevents MutationObserver / load /
+   * interval from stacking into a tight main-thread loop. */
+  function scheduleCustomRefresh(force) {
+    if (!isCustomProductMatch()) return;
+    if (customRefreshScheduled) return;
+    customRefreshScheduled = true;
+    setTimeout(function () {
+      customRefreshScheduled = false;
+      refreshCustomProductViewer(!!force);
+    }, 120);
+  }
+
+  /* Custom product pages: every 5s look for #custom-product-image.
+   * If present, convert to 3D (same framed/unframed logic as normal products).
+   * If src changed since last convert, rebuild. If already converted / building
+   * for this src, do nothing (variant/frame changes still go through scheduleReconcile).
+   * Never touches Shopify product gallery images. */
+  function refreshCustomProductViewer(force) {
+    customRefreshCount += 1;
+    // Hot path — keep logs sparse so console spam can't freeze the page.
+    if (customRefreshCount <= 3 || customRefreshCount % 20 === 0) {
+      psLog('refreshCustomProductViewer #' + customRefreshCount, {
+        enabled: enabled,
+        customMatch: isCustomProductMatch(),
+        productHandle: productHandle,
+        hasViewer: !!viewer,
+        building: viewerBuilding || customConvertInFlight,
+        lastKey: lastCustomImageKey ? String(lastCustomImageKey).slice(0, 80) : '',
+        force: !!force
+      });
+    }
+
+    if (!enabled) return;
+    if (!isCustomProductMatch()) return;
+    if (document.hidden) return;
+
+    var img = findCustomProductImage();
+    if (!img) {
+      if (overlay || viewer || primaryImage) detachOverlay();
+      lastCustomImageKey = '';
+      customConvertInFlight = false;
+      return;
+    }
+
+    bindCustomPreviewLoad(img);
+
+    var key = customImageKey(img);
+    if (!key) return;
+
+    // Same image already converted, or a convert is already in flight — stop.
+    // (hasViewer stays false while engine loads; without this guard the
+    // MutationObserver + class toggles re-enter forever and freeze the page.)
+    var sameKey = key === lastCustomImageKey;
+    if (sameKey && (viewerBuilding || customConvertInFlight)) return;
+    if (sameKey && (viewer || (overlay && primaryImage === img))) return;
+
+    psLog('refresh: converting #custom-product-image to 3D', {
+      key: key.slice(0, 180),
+      ready: isCustomPreviewReady(img),
+      naturalWidth: img.naturalWidth,
+      naturalHeight: img.naturalHeight
+    });
+
+    lastCustomImageKey = key;
+    customConvertInFlight = true;
+    lastSignature = '';
+    reconcile();
+    // If ensureViewer early-returned (no payload / no webgl), clear in-flight.
+    if (!viewerBuilding && !viewer) {
+      customConvertInFlight = false;
+    } else if (viewer && !viewerBuilding) {
+      customConvertInFlight = false;
+    }
+  }
+
+  function startCustomProductRefresh() {
+    if (customRefreshTimer) {
+      clearInterval(customRefreshTimer);
+      customRefreshTimer = null;
+    }
+    if (!isCustomProductMatch()) {
+      psWarn('startCustomProductRefresh: NOT started', {
+        productHandle: productHandle,
+        customMatch: settingsData && settingsData.customMatch,
+        customProducts: settingsData && settingsData.customProducts
+      });
+      return;
+    }
+    psLog('startCustomProductRefresh: started (every 5s)', {
+      productHandle: productHandle,
+      customProducts: settingsData && settingsData.customProducts
+    });
+    refreshCustomProductViewer(true);
+    customRefreshTimer = setInterval(function () {
+      refreshCustomProductViewer(false);
+    }, 5000);
   }
 
   function bindEvents() {
@@ -938,6 +1352,15 @@
         // reliable signal here.
         t.hasAttribute('data-variant-input') ||
         t.closest('.variant-input-wrap, .variant-wrapper, [data-variant-input]')) {
+        // Rebuild frames/size for the new variant. We deliberately do NOT
+        // force-clear lastSignature here (custom or otherwise) — reconcile()
+        // already rebuilds whenever the computed signature actually differs,
+        // since frame/size come synchronously from productData. Forcing a
+        // clear on every one of these retries caused the viewer to fully
+        // tear down and rebuild 3+ times in a row for a single variant
+        // click (visible as the loader flashing repeatedly). We still fire
+        // a few delayed checks because some themes update the option
+        // inputs / #custom-product-image asynchronously.
         scheduleReconcile();
         setTimeout(scheduleReconcile, 250);
         setTimeout(scheduleReconcile, 600);   // theme's own variant-match JS may run asynchronously
@@ -951,6 +1374,11 @@
         'slideshow-slide, .product__media-wrapper, .product-gallery, ' +
         '[data-product-media-gallery], variant-picker, variant-selects, ' +
         '.variant-input-wrap, .variant-wrapper, [data-variant-input]')) {
+        // Same reasoning as the change handler above: let reconcile()'s own
+        // signature comparison decide whether a rebuild is needed, rather
+        // than forcing one. A swatch/radio click also fires a native
+        // `change` event, so without this fix this handler was stacking
+        // extra forced rebuilds on top of the change handler's.
         setTimeout(scheduleReconcile, 80);
         setTimeout(scheduleReconcile, 250);
         setTimeout(scheduleReconcile, 600);
@@ -975,10 +1403,55 @@
 
   function startObserver() {
     if (observer || !document.body) return;
-    observer = new MutationObserver(scheduleReconcile);
+    observer = new MutationObserver(function (mutations) {
+      if (isCustomProductMatch()) {
+        var i, m, t, attr;
+        for (i = 0; i < mutations.length; i++) {
+          m = mutations[i];
+          t = m.target;
+          // ONLY src/srcset on the custom preview image — never class/style.
+          // attachOverlay adds .ps-img-hidden which used to re-enter forever.
+          if (m.type === 'attributes' && t && t.tagName === 'IMG') {
+            attr = m.attributeName || '';
+            if (attr !== 'src' && attr !== 'srcset') continue;
+            if (t.id === 'custom-product-image' ||
+              (t.classList && t.classList.contains('cropped-preview'))) {
+              scheduleCustomRefresh(true);
+              return;
+            }
+          }
+          if (m.type === 'childList' && m.addedNodes.length) {
+            var nodes = m.addedNodes;
+            var hit = false;
+            for (var n = 0; n < nodes.length; n++) {
+              var node = nodes[n];
+              if (!node || !node.nodeType || node.nodeType !== 1) continue;
+              // Ignore our own overlay inserts — those caused the freeze loop.
+              if (node.classList && node.classList.contains('ps-overlay')) continue;
+              if (node.id === 'custom-product-image') { hit = true; break; }
+              if (node.querySelector &&
+                node.querySelector('#custom-product-image, img.cropped-preview') &&
+                !(node.classList && node.classList.contains('ps-overlay'))) {
+                hit = true; break;
+              }
+            }
+            if (hit) {
+              scheduleCustomRefresh(true);
+              return;
+            }
+          }
+        }
+        // Custom pages: ignore unrelated DOM churn — do not run gallery reconcile.
+        return;
+      }
+      scheduleReconcile();
+    });
     observer.observe(document.body, {
       childList: true, subtree: true,
-      attributes: true, attributeFilter: ['src', 'srcset', 'class', 'style', 'hidden', 'aria-hidden']
+      attributes: true,
+      // class/style still needed for normal gallery pages; custom mode
+      // ignores those and only acts on src/srcset above.
+      attributeFilter: ['src', 'srcset', 'class', 'style', 'hidden', 'aria-hidden']
     });
   }
 
@@ -987,6 +1460,8 @@
     enabled = false;
     if (observer) observer.disconnect();
     if (pollTimer) clearInterval(pollTimer);
+    if (customRefreshTimer) clearInterval(customRefreshTimer);
+    customRefreshTimer = null;
     clearTimeout(loadTimer);
     if (viewer && viewer.dispose) { try { viewer.dispose(); } catch (e) { } }
     if (primaryImage) primaryImage.classList.remove('ps-img-hidden');
@@ -1002,6 +1477,14 @@
     loadProductData();
     bindEvents();
     startObserver();
+    startCustomProductRefresh();
+
+    // Custom upload pages: only the 5s #custom-product-image path — never poll gallery.
+    if (isCustomProductMatch()) {
+      psLog('start: custom product mode — gallery poll disabled');
+      // startCustomProductRefresh() already kicked the first convert.
+      return;
+    }
 
     // keep trying to find the gallery image (themes lazy-render it, or fade
     // it in via animation libraries that change styles well after load)
@@ -1052,37 +1535,108 @@
     }
   }
 
-  /* Respect an app "enabled: false" setting if the backend answers; never
-   * block on it. Same proxy endpoint as AR Viewer:
-   *   GET /apps/ar-preview/api/settings?product_id=…  */
+  /* Wait for /api/settings before converting anything. Without imageAlt tags,
+   * Poster Studio converts nothing — unless the product handle is in Custom
+   * Products, in which case alt checks are skipped and #custom-product-image
+   * is converted on a 5s refresh loop. */
   if (productId && backendBase) {
-    var settled = false;
+    var booted = false;
     var shopDomain = root.dataset.shop || '';
-    var go = function (data) {
-      if (settled) return; settled = true;
+    var applySettings = function (data) {
+      psLog('settings response', data);
+
+      var customMatch = !!(data && data.customMatch);
+      if (!customMatch && productHandle && data && data.customProducts) {
+        var handles = String(data.customProducts).split(',')
+          .map(function (h) {
+            return String(h || '').trim().toLowerCase()
+              .replace(/^\/+/, '')
+              .replace(/^products\//i, '');
+          })
+          .filter(Boolean);
+        customMatch = handles.indexOf(productHandle) !== -1;
+        psLog('settings local handle check', {
+          productHandle: productHandle,
+          handles: handles,
+          customMatch: customMatch
+        });
+      }
+
+      if (!productHandle) {
+        psWarn('data-product-handle is empty — deploy poster-studio.liquid with product.handle');
+      }
+
       settingsData = data ? {
-        enabled: data.enabled !== false,
+        enabled: customMatch ? true : (data.enabled !== false),
+        customMatch: customMatch,
+        customProducts: data.customProducts || '',
         imageMode: data.imageMode || 'default',
         imageAlt: data.imageAlt || '',
         imageUrl: data.imageUrl || '',
         imageThumb: data.imageThumb || ''
-      } : null;
-      if (data && data.enabled === false) { teardown(); return; }
-      if (settingsData && settingsData.imageUrl) {
+      } : {
+        enabled: true,
+        customMatch: false,
+        customProducts: '',
+        imageMode: 'default',
+        imageAlt: '',
+        imageUrl: '',
+        imageThumb: ''
+      };
+
+      psLog('settings applied', settingsData);
+
+      if (settingsData.enabled === false && !settingsData.customMatch) {
+        psWarn('teardown: enabled=false and not custom match');
+        teardown();
+        return;
+      }
+      if (settingsData.imageUrl) {
         root.dataset.img = settingsData.imageUrl;
         root.dataset.imgThumb = settingsData.imageThumb || settingsData.imageUrl;
       }
-      boot();
+      if (!booted) {
+        booted = true;
+        psLog('booting viewer…');
+        boot();
+        return;
+      }
+      detachOverlay();
+      startCustomProductRefresh();
+      if (settingsData.customMatch) scheduleCustomRefresh(true);
+      else scheduleReconcile();
     };
     var settingsUrl = backendBase + '/api/settings?product_id=' + encodeURIComponent(productId);
+    if (productHandle) settingsUrl += '&product_handle=' + encodeURIComponent(productHandle);
     if (shopDomain) settingsUrl += '&shop=' + encodeURIComponent(shopDomain);
+    psLog('fetching settings', settingsUrl);
     fetch(settingsUrl, { credentials: 'same-origin' })
-      .then(function (r) { return r.ok ? r.json() : { enabled: true }; })
-      .then(go)
-      .catch(function () { go({ enabled: true }); });
-    // don't wait forever for the proxy
-    setTimeout(function () { go({ enabled: true }); }, 2500);
+      .then(function (r) {
+        psLog('settings HTTP status', r.status, r.ok);
+        return r.ok ? r.json() : null;
+      })
+      .then(applySettings)
+      .catch(function (err) {
+        psWarn('settings fetch failed', err && err.message ? err.message : err);
+        applySettings(null);
+      });
+    setTimeout(function () {
+      if (!booted) {
+        psWarn('settings timeout (2.5s) — booting with defaults');
+        applySettings(null);
+      }
+    }, 2500);
   } else {
+    // No product/backend → no tag target → nothing to convert.
+    settingsData = {
+      enabled: true,
+      customMatch: false,
+      customProducts: '',
+      imageMode: 'default',
+      imageAlt: '',
+      imageUrl: '',
+      imageThumb: ''
+    };
     boot();
   }
 })();

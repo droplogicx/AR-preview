@@ -241,65 +241,6 @@ function createShadowTexture() {
   return new THREE.CanvasTexture(canvas);
 }
 
-function createGlassReflectionTexture() {
-  const canvas = document.createElement('canvas');
-  canvas.width = 1024;
-  canvas.height = 1024;
-  const ctx = canvas.getContext('2d');
-
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  const softSheen = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
-  softSheen.addColorStop(0, 'rgba(255,255,255,0.035)');
-  softSheen.addColorStop(0.18, 'rgba(255,255,255,0.006)');
-  softSheen.addColorStop(0.58, 'rgba(255,255,255,0)');
-  softSheen.addColorStop(1, 'rgba(255,255,255,0.018)');
-  ctx.fillStyle = softSheen;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  const windowGlow = ctx.createLinearGradient(canvas.width * 0.56, 0, canvas.width, canvas.height);
-  windowGlow.addColorStop(0, 'rgba(255,255,255,0)');
-  windowGlow.addColorStop(0.42, 'rgba(255,255,255,0.015)');
-  windowGlow.addColorStop(0.72, 'rgba(255,255,255,0.075)');
-  windowGlow.addColorStop(1, 'rgba(255,255,255,0.015)');
-  ctx.fillStyle = windowGlow;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  ctx.save();
-  ctx.translate(canvas.width * 0.67, canvas.height * 0.12);
-  ctx.rotate(-0.17);
-  ctx.fillStyle = 'rgba(255,255,255,0.06)';
-  ctx.strokeStyle = 'rgba(255,255,255,0.42)';
-  ctx.lineWidth = 2.4;
-  const paneW = canvas.width * 0.12;
-  const paneH = canvas.height * 0.22;
-  for (let row = 0; row < 2; row += 1) {
-    for (let col = 0; col < 2; col += 1) {
-      const x = col * (paneW + 16);
-      const y = row * (paneH + 16);
-      ctx.fillRect(x, y, paneW, paneH);
-      ctx.strokeRect(x, y, paneW, paneH);
-    }
-  }
-  ctx.restore();
-
-  ctx.save();
-  ctx.translate(canvas.width * 0.16, canvas.height * 0.02);
-  ctx.rotate(-0.45);
-  const streak = ctx.createLinearGradient(0, 0, canvas.width * 0.36, 0);
-  streak.addColorStop(0, 'rgba(255,255,255,0)');
-  streak.addColorStop(0.5, 'rgba(255,255,255,0.24)');
-  streak.addColorStop(1, 'rgba(255,255,255,0)');
-  ctx.fillStyle = streak;
-  ctx.fillRect(0, 0, canvas.width * 0.5, canvas.height * 0.026);
-  ctx.restore();
-
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.anisotropy = 8;
-  return texture;
-}
-
 function disposeObject(object) {
   object.traverse((child) => {
     if (child.geometry) child.geometry.dispose();
@@ -678,9 +619,11 @@ class ImageSlabViewer {
 
       const minSide = Math.min(width, height);
       const depth = Math.min(Math.max(minSide * 0.035, 0.035), minSide * 0.06);
-      const paperMat = new THREE.MeshStandardMaterial({ color: 0xf7f4ec, roughness: 0.92, metalness: 0 });
+      // Unlit materials: MeshStandard + RoomEnvironment was producing a
+      // glass-like sheen / soft shade across the unframed artwork.
+      const paperMat = new THREE.MeshBasicMaterial({ color: 0xf7f4ec });
       paperMat.side = THREE.DoubleSide;
-      const artMat = new THREE.MeshStandardMaterial({ map: texture, color: 0xffffff });
+      const artMat = new THREE.MeshBasicMaterial({ map: texture, color: 0xffffff });
       artMat.side = THREE.DoubleSide;
       const box = new THREE.Mesh(
         new THREE.BoxGeometry(width, height, depth),

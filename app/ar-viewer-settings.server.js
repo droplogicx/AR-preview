@@ -117,6 +117,43 @@ function mapImageSettings(settings) {
   return { imageMode, imageAlt };
 }
 
+/** Normalize comma-separated product handles from the admin UI. */
+export function normalizeCustomProductHandles(raw) {
+  const seen = new Set();
+  const handles = [];
+
+  String(raw || "")
+    .split(",")
+    .forEach((part) => {
+      let handle = String(part || "").trim();
+      if (!handle) return;
+
+      // Accept full product URLs or /products/handle paths.
+      try {
+        if (/^https?:\/\//i.test(handle) || handle.startsWith("//")) {
+          const url = new URL(handle.startsWith("//") ? `https:${handle}` : handle);
+          handle = url.pathname;
+        }
+      } catch {
+        // keep raw fragment
+      }
+
+      handle = handle
+        .replace(/^\/+/, "")
+        .replace(/^products\//i, "")
+        .replace(/\/+$/, "")
+        .split(/[?#]/)[0]
+        .trim()
+        .toLowerCase();
+
+      if (!handle || seen.has(handle)) return;
+      seen.add(handle);
+      handles.push(handle);
+    });
+
+  return handles.join(", ");
+}
+
 export async function getArViewerImageSetting(shop) {
   const settings = await prisma.arViewerSettings.findUnique({ where: { shop } });
   return mapImageSettings(settings);
@@ -157,7 +194,30 @@ export async function getArViewerSettings(shop) {
       title: p.productTitle || p.productId,
       imageUrl: p.productImageUrl || "",
     })),
+    customProducts: settings?.customProducts || "",
   };
+}
+
+export function getCustomProductHandles(shopSettingsOrRaw) {
+  const raw =
+    typeof shopSettingsOrRaw === "string"
+      ? shopSettingsOrRaw
+      : shopSettingsOrRaw?.customProducts || "";
+  return normalizeCustomProductHandles(raw)
+    .split(",")
+    .map((h) => h.trim())
+    .filter(Boolean);
+}
+
+export async function isCustomProductHandle(shop, handle) {
+  const settings = await prisma.arViewerSettings.findUnique({ where: { shop } });
+  const wanted = String(handle || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^\/+/, "")
+    .replace(/^products\//i, "");
+  if (!wanted) return false;
+  return getCustomProductHandles(settings).includes(wanted);
 }
 
 export async function isArViewerEnabledForProduct(shop, productId, admin) {
@@ -287,7 +347,7 @@ export async function fetchProductsByIds(admin, productIds) {
     }));
 }
 
-export async function saveArViewerSettings(shop, { mode, products, imageMode, imageAlt }) {
+export async function saveArViewerSettings(shop, { mode, products, imageMode, imageAlt, customProducts }) {
   const normalizedMode = mode === "specific" ? "specific" : "all";
   const normalizedProducts =
     normalizedMode === "specific"
@@ -299,6 +359,7 @@ export async function saveArViewerSettings(shop, { mode, products, imageMode, im
     normalizedImageMode === "specific"
       ? String(imageAlt || "").trim() || null
       : null;
+  const normalizedCustomProducts = normalizeCustomProductHandles(customProducts);
 
   await prisma.$transaction([
     prisma.arViewerSettings.upsert({
@@ -308,11 +369,13 @@ export async function saveArViewerSettings(shop, { mode, products, imageMode, im
         mode: normalizedMode,
         imageMode: normalizedImageMode,
         imageAlt: normalizedImageAlt,
+        customProducts: normalizedCustomProducts,
       },
       update: {
         mode: normalizedMode,
         imageMode: normalizedImageMode,
         imageAlt: normalizedImageAlt,
+        customProducts: normalizedCustomProducts,
       },
     }),
     prisma.arViewerProduct.deleteMany({ where: { shop } }),

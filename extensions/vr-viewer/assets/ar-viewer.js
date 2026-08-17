@@ -28,11 +28,20 @@
 
   var backendPreview = getAppProxyBase();
   var productId = root.dataset.productId || '';
+  var productHandle = String(root.dataset.productHandle || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^\/+/, '')
+    .replace(/^products\//i, '')
+    .replace(/\/+$/, '')
+    .split(/[?#]/)[0];
   var arImageSettings = {
     imageMode: 'default',
     imageAlt: '',
     imageUrl: '',
-    imageThumb: ''
+    imageThumb: '',
+    customMatch: false,
+    customProducts: ''
   };
 
   function continueInit() {
@@ -958,6 +967,102 @@
       return null;
     }
 
+    /* Custom Products (admin comma-separated handles): skip alt/gallery and
+     * use whatever is currently in #custom-product-image for the modal. */
+    function isCustomProductMatch() {
+      if (arImageSettings && arImageSettings.customMatch) return true;
+      if (!productHandle || !arImageSettings || !arImageSettings.customProducts) return false;
+      var handles = String(arImageSettings.customProducts).split(',')
+        .map(function (h) {
+          return String(h || '').trim().toLowerCase()
+            .replace(/^\/+/, '')
+            .replace(/^products\//i, '');
+        })
+        .filter(Boolean);
+      return handles.indexOf(productHandle) !== -1;
+    }
+
+    function readDomImageSrc(img) {
+      if (!img) return '';
+      var src = img.currentSrc || img.src ||
+        img.getAttribute('src') ||
+        img.getAttribute('data-src') ||
+        img.getAttribute('data-original') ||
+        img.getAttribute('data-zoom') ||
+        '';
+      // Prefer first candidate from srcset when src is empty.
+      if (!src) {
+        var srcset = img.getAttribute('srcset') || img.getAttribute('data-srcset') || '';
+        if (srcset) {
+          var first = String(srcset).split(',')[0] || '';
+          src = first.trim().split(/\s+/)[0] || '';
+        }
+      }
+      return toSecureUrl(src);
+    }
+
+    function findCustomProductImage() {
+      // Prefer exact id; also accept cropped-preview used by older upload UIs.
+      var img = document.getElementById('custom-product-image');
+      if (!img || String(img.tagName || '').toUpperCase() !== 'IMG') {
+        img = document.querySelector('img#custom-product-image, img.cropped-preview');
+      }
+      if (!img) return null;
+      if (img.closest && img.closest('#ar-room, #ar-splash, #ar-root, .ar-product-cta, .ps-overlay')) {
+        return null;
+      }
+      var src = readDomImageSrc(img);
+      if (!src) return null;
+      // Only skip true empty placeholders — never reject real upload URLs.
+      if (/^data:image\/gif/i.test(src) && src.length < 100) return null;
+      return img;
+    }
+
+    function refreshArImageFromCustomProduct() {
+      if (!isCustomProductMatch()) return false;
+      var img = findCustomProductImage();
+      if (!img) return false;
+      var src = readDomImageSrc(img);
+      if (!src) return false;
+
+      // Always override product / tagged artwork with the live custom preview.
+      IMG = src;
+      IMG_THUMB = src;
+      var width = img.naturalWidth || parseFloat(img.getAttribute('width') || '0') || 0;
+      var height = img.naturalHeight || parseFloat(img.getAttribute('height') || '0') || 0;
+      if (width > 0) IMG_W = width;
+      if (height > 0) IMG_H = height;
+      if (IMG_W > 0 && IMG_H > 0) productRatio = IMG_H / IMG_W;
+      return true;
+    }
+
+    function applyCustomImageToModal() {
+      if (!isCustomProductMatch()) return false;
+      if (!refreshArImageFromCustomProduct()) return false;
+      var img = document.getElementById('ar-product-img');
+      if (img && IMG) {
+        if (img.getAttribute('src') !== IMG) {
+          img.setAttribute('src', IMG);
+        }
+      }
+      return true;
+    }
+
+    /* Wipe liquid/product seeded artwork so custom pages never flash product photos. */
+    function clearProductSeededImage() {
+      IMG = '';
+      IMG_THUMB = '';
+      IMG_W = 0;
+      IMG_H = 0;
+      productRatio = null;
+    }
+
+    // Custom product pages must never keep the liquid featured product photo.
+    if (isCustomProductMatch()) {
+      clearProductSeededImage();
+      refreshArImageFromCustomProduct();
+    }
+
     function imageCompareKey(url) {
       url = toSecureUrl(url || '');
       if (!url) return '';
@@ -1017,6 +1122,7 @@
     }
 
     function syncVisibleProductImage() {
+      if (isCustomProductMatch()) return refreshArImageFromCustomProduct();
       if (arImageSettings && arImageSettings.imageMode === 'specific') return false;
       var visibleImg = findVisibleProductImage();
       if (!visibleImg) return false;
@@ -1034,6 +1140,7 @@
     }
 
     function refreshArImageFromSettings() {
+      if (isCustomProductMatch()) return refreshArImageFromCustomProduct();
       if (
         !arImageSettings ||
         arImageSettings.imageMode !== 'specific' ||
@@ -1070,6 +1177,14 @@
     }
 
     function applyVariantImage(variant) {
+      // Custom upload pages: never swap to variant featured / tagged images.
+      if (isCustomProductMatch()) {
+        if (!refreshArImageFromCustomProduct()) {
+          // Keep previous custom src if any; never fall back to product photos.
+          return;
+        }
+        return;
+      }
       if (refreshArImageFromSettings()) return;
       if (!variant || !variant.featured_image || !variant.featured_image.src) return;
       var src = variant.featured_image.src;
@@ -1093,7 +1208,8 @@
       buildProductVariantOptions();
       var sig = pickerSig();
       if (!force && state.customizedInModal && sig === state.lastSyncedPickerSig) {
-        refreshArImageFromSettings();
+        if (isCustomProductMatch()) refreshArImageFromCustomProduct();
+        else refreshArImageFromSettings();
         return;
       }
       state.lastSyncedPickerSig = sig;
@@ -1108,12 +1224,24 @@
         var matched = findVariantByPicker(picker);
         if (matched) applyVariantToState(matched);
       }
+
+      // Custom-product handle match: modal artwork = #custom-product-image ONLY.
+      // Never use tagged alts or Shopify product gallery images.
+      if (isCustomProductMatch()) {
+        if (!refreshArImageFromCustomProduct()) {
+          // Do not keep leftover product featured image from liquid.
+          clearProductSeededImage();
+        }
+        return;
+      }
+
       refreshArImageFromSettings();
       syncVisibleProductImage();
     }
 
     function applySyncedPreviewToModal() {
       syncFromProductPage();
+      if (isCustomProductMatch()) applyCustomImageToModal();
       var img = document.getElementById('ar-product-img');
       if (img && IMG) {
         if (img.getAttribute('src') !== IMG) img.setAttribute('src', IMG);
@@ -1307,6 +1435,29 @@
     }
 
     // ── Inject Live Preview CTA directly under main product image ────────────────
+    function findCustomProductImageMount() {
+      if (!isCustomProductMatch()) return null;
+      var img = findCustomProductImage();
+      if (!img) return null;
+      var host = img.closest('.image-frame-wrap, .image-frame') || img.parentElement;
+      if (!host) return null;
+      return { node: host, mode: 'after' };
+    }
+
+    function findImageFrameWrapMount() {
+      var wraps = document.querySelectorAll('.image-frame-wrap');
+      if (!wraps || !wraps.length) return null;
+      // Prefer the first visible wrap (custom product preview area).
+      var i, wrap, style;
+      for (i = 0; i < wraps.length; i++) {
+        wrap = wraps[i];
+        style = window.getComputedStyle(wrap);
+        if (style.display === 'none' || style.visibility === 'hidden') continue;
+        return { node: wrap, mode: 'after' };
+      }
+      return { node: wraps[0], mode: 'after' };
+    }
+
     function findMainPhotosNode() {
       var stickyCol = document.querySelector(
         '.product-single__sticky.grid__item, .grid__item.product-single__sticky, .product-single__sticky'
@@ -1319,6 +1470,13 @@
     }
 
     function findProductMediaMountPoint() {
+      // Custom product pages: button under #custom-product-image (or frame wrap).
+      var customMount = findCustomProductImageMount();
+      if (customMount) return customMount;
+
+      var frameMount = findImageFrameWrapMount();
+      if (frameMount) return frameMount;
+
       var mainPhotos = findMainPhotosNode();
       if (mainPhotos) return { node: mainPhotos, mode: 'append' };
 
@@ -1487,9 +1645,17 @@
     }
 
     function ensureLivePreviewButton() {
-      var mount = findProductMediaMountPoint();
       var fabWrap = getOrCreateFabWrap();
 
+      // Always prefer under .image-frame-wrap when that custom preview exists.
+      var frameMount = findImageFrameWrapMount();
+      if (frameMount && frameMount.node) {
+        insertFabAfterNode(frameMount.node, fabWrap);
+        bindFabClick();
+        return;
+      }
+
+      var mount = findProductMediaMountPoint();
       if (mount && mount.node) {
         if (mount.mode === 'append') {
           appendFabToNode(mount.node, fabWrap);
@@ -1538,19 +1704,37 @@
       }, true);
 
       var lastFabSig = '';
+      var lastCustomImgKey = '';
       setInterval(function () {
         ensureLivePreviewButton();
+        var openRoomEl = document.getElementById('ar-room');
+        var modalOpen = openRoomEl && openRoomEl.classList.contains('ar-open');
+
+        // Custom products: while modal is open, keep artwork in sync with
+        // #custom-product-image (src can change after upload/crop).
+        if (modalOpen && isCustomProductMatch()) {
+          var customImg = findCustomProductImage();
+          var customKey = customImg ? readDomImageSrc(customImg) : '';
+          if (customKey && customKey !== lastCustomImgKey) {
+            lastCustomImgKey = customKey;
+            if (applyCustomImageToModal()) renderViewport();
+          } else if (customKey) {
+            // Same key but modal img may still be a product photo — force sync.
+            applyCustomImageToModal();
+          }
+        }
+
         var sig = pickerSig();
         if (sig !== lastFabSig) {
           lastFabSig = sig;
-          var openRoomEl = document.getElementById('ar-room');
-          if (openRoomEl && openRoomEl.classList.contains('ar-open')) applySyncedPreviewToModal();
+          if (modalOpen) applySyncedPreviewToModal();
         }
       }, 400);
 
       var watchRoot = document.querySelector(
-        '.product-single__sticky, .product__photos, .product-information, .product-section'
-      );
+        '.product-single__sticky, .product__photos, .product-information, .product-section, ' +
+        '#custom-product-image, .image-frame-wrap, main, #MainContent, .main-content'
+      ) || document.body;
       if (watchRoot && window.MutationObserver) {
         new MutationObserver(function () {
           ensureLivePreviewButton();
@@ -1950,6 +2134,10 @@
 
       var prodImg = document.getElementById('ar-product-img');
       if (prodImg) {
+        // Custom products: force the live #custom-product-image src into the modal.
+        if (isCustomProductMatch()) {
+          applyCustomImageToModal();
+        }
         prodImg.addEventListener('load', function () { onProductImgLoad(prodImg); });
         if (prodImg.complete) onProductImgLoad(prodImg);
       }
@@ -3324,6 +3512,9 @@
         if (!state.customizedInModal) {
           syncFromProductPage();
           applySyncedPreviewToModal();
+        } else if (isCustomProductMatch()) {
+          // Still pick up latest #custom-product-image without resetting size/frame.
+          applyCustomImageToModal();
         }
         fetchAndLaunch();
       } else {
@@ -3599,12 +3790,15 @@
       }
       hideSplash();
       applySyncedPreviewToModal();
+      if (isCustomProductMatch()) applyCustomImageToModal();
       requestAnimationFrame(function () {
         if (gen !== openGeneration) return;
         roomEl.classList.add('ar-open');
         requestAnimationFrame(function () {
           if (gen !== openGeneration) return;
+          if (isCustomProductMatch()) applyCustomImageToModal();
           centerActiveThumb();
+          renderViewport();
         });
       });
     }
@@ -3675,8 +3869,13 @@
       var gen = openGeneration;
 
       syncFromProductPage(true);
+      // Custom pages: artwork must come from #custom-product-image, never product photos.
+      if (isCustomProductMatch()) {
+        if (!refreshArImageFromCustomProduct()) clearProductSeededImage();
+      }
       showSplash();
       buildRoomUI();
+      if (isCustomProductMatch()) applyCustomImageToModal();
       roomEl.classList.remove('ar-room-fullwidth');
       roomEl.setAttribute('aria-hidden', 'false');
 
@@ -3724,10 +3923,16 @@
   }
 
   if (productId && backendPreview) {
-    fetch(
-      backendPreview + '/api/settings?product_id=' + encodeURIComponent(productId),
-      { credentials: 'same-origin' }
-    )
+    var settingsUrl =
+      backendPreview + '/api/settings?product_id=' + encodeURIComponent(productId);
+    if (productHandle) {
+      settingsUrl += '&product_handle=' + encodeURIComponent(productHandle);
+    }
+    var shopDomain = root.dataset.shop || '';
+    if (shopDomain) {
+      settingsUrl += '&shop=' + encodeURIComponent(shopDomain);
+    }
+    fetch(settingsUrl, { credentials: 'same-origin' })
       .then(function (res) { return res.ok ? res.json() : { enabled: true }; })
       .then(function (data) {
         // Even if the app proxy reports View in Room as enabled for this
@@ -3737,7 +3942,37 @@
           removeArViewerDom();
           return;
         }
-        if (data && data.enabled === false) {
+
+        var customMatch = !!(data && data.customMatch);
+        if (!customMatch && productHandle && data && data.customProducts) {
+          var handles = String(data.customProducts).split(',')
+            .map(function (h) {
+              return String(h || '').trim().toLowerCase()
+                .replace(/^\/+/, '')
+                .replace(/^products\//i, '');
+            })
+            .filter(Boolean);
+          customMatch = handles.indexOf(productHandle) !== -1;
+        }
+        // If the storefront already rendered #custom-product-image and this
+        // handle is listed in customProducts, force custom mode even when the
+        // API omits customMatch.
+        if (!customMatch && productHandle && data && data.customProducts) {
+          var hasCustomImg = !!document.getElementById('custom-product-image');
+          if (hasCustomImg) {
+            var handles2 = String(data.customProducts).split(',')
+              .map(function (h) {
+                return String(h || '').trim().toLowerCase()
+                  .replace(/^\/+/, '')
+                  .replace(/^products\//i, '');
+              })
+              .filter(Boolean);
+            customMatch = handles2.indexOf(productHandle) !== -1;
+          }
+        }
+
+        // Custom-product handle match: skip other visibility checks and show VR.
+        if (!customMatch && data && data.enabled === false) {
           removeArViewerDom();
           return;
         }
@@ -3745,11 +3980,17 @@
           imageMode: (data && data.imageMode) || 'default',
           imageAlt: (data && data.imageAlt) || '',
           imageUrl: (data && data.imageUrl) || '',
-          imageThumb: (data && data.imageThumb) || ''
+          imageThumb: (data && data.imageThumb) || '',
+          customMatch: customMatch,
+          customProducts: (data && data.customProducts) || ''
         };
         if (data && data.width != null) root.dataset.width = String(data.width);
         if (data && data.height != null) root.dataset.height = String(data.height);
-        if (data && data.imageUrl) {
+        // Custom match: never seed modal from product / tagged imageUrl.
+        if (customMatch) {
+          root.dataset.img = '';
+          root.dataset.imgThumb = '';
+        } else if (data && data.imageUrl) {
           root.dataset.img = data.imageUrl;
           root.dataset.imgThumb = data.imageThumb || data.imageUrl;
         }

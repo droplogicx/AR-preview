@@ -1,9 +1,12 @@
 import {
   getArViewerImageSetting,
+  getCustomProductHandles,
   isArViewerEnabledForProduct,
+  isCustomProductHandle,
   resolveArImageByAlt,
 } from "../ar-viewer-settings.server";
 import { authenticate, unauthenticated } from "../shopify.server";
+import prisma from "../db.server";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -14,6 +17,8 @@ const CORS = {
 function settingsPayload(partial: Record<string, unknown> = {}) {
   return {
     enabled: true,
+    customMatch: false,
+    customProducts: "",
     imageMode: "default",
     imageAlt: "",
     width: 60,
@@ -22,6 +27,16 @@ function settingsPayload(partial: Record<string, unknown> = {}) {
     imageThumb: null,
     ...partial,
   };
+}
+
+function normalizeHandle(raw: string | null | undefined) {
+  return String(raw || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^\/+/, "")
+    .replace(/^products\//i, "")
+    .replace(/\/+$/, "")
+    .split(/[?#]/)[0];
 }
 
 export async function loader({ request }: { request: Request }) {
@@ -38,6 +53,10 @@ export async function loader({ request }: { request: Request }) {
         { status: 400, headers: CORS },
       );
     }
+
+    const productHandle = normalizeHandle(
+      url.searchParams.get("product_handle") || url.searchParams.get("handle"),
+    );
 
     // Shopify app proxy always appends ?shop=…; prefer that, then auth session.
     let shop = url.searchParams.get("shop") || "";
@@ -68,12 +87,32 @@ export async function loader({ request }: { request: Request }) {
       admin = null;
     }
 
-    let enabled = true;
+    let customProducts = "";
+    let customMatch = false;
     try {
-      enabled = await isArViewerEnabledForProduct(shop, productId, admin);
+      const settingsRow = await prisma.arViewerSettings.findUnique({ where: { shop } });
+      customProducts = settingsRow?.customProducts || "";
+      const handles = getCustomProductHandles(settingsRow);
+      customMatch = !!(productHandle && handles.length && handles.includes(productHandle));
+      if (!customMatch && productHandle) {
+        customMatch = await isCustomProductHandle(shop, productHandle);
+      }
     } catch {
-      // Fail open for product gating so storefront previews still load.
+      customProducts = "";
+      customMatch = false;
+    }
+
+    // Custom-product handle match bypasses collection visibility checks.
+    let enabled = true;
+    if (customMatch) {
       enabled = true;
+    } else {
+      try {
+        enabled = await isArViewerEnabledForProduct(shop, productId, admin);
+      } catch {
+        // Fail open for product gating so storefront previews still load.
+        enabled = true;
+      }
     }
 
     let imageSetting = { imageMode: "default", imageAlt: "" };
@@ -97,6 +136,8 @@ export async function loader({ request }: { request: Request }) {
     return Response.json(
       settingsPayload({
         enabled,
+        customMatch,
+        customProducts,
         imageMode: imageSetting.imageMode,
         imageAlt: imageSetting.imageAlt,
         imageUrl: arImage?.url || null,

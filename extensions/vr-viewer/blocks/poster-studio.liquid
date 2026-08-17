@@ -1,4 +1,10 @@
-{% if template == 'product' and product != blank %}
+{% comment %}
+  App embed: enable once under Theme settings → App embeds.
+  Covers ALL product templates (including upload-your-own alternates).
+  Previously this was a product-template block with `template == 'product'`,
+  which never rendered on alternate templates like product.upload-your-own.
+{% endcomment %}
+{% if request.page_type == 'product' and product != blank %}
 
   {% assign feat = product.featured_image %}
   {% if feat != blank %}
@@ -11,10 +17,20 @@
   {% assign title = product.title | escape %}
   {% assign backend = '/apps/ar-preview' %}
 
+  <script>
+    console.log('[PosterStudio] liquid embed rendered', {
+      handle: {{ product.handle | json }},
+      id: {{ product.id | json }},
+      pageType: {{ request.page_type | json }},
+      template: {{ template | json }}
+    });
+  </script>
+
   {%- comment -%} Data holder only – the 3D viewer is injected over the theme's
   main product image by poster-studio.js. {%- endcomment -%}
   <div id="ps-root"
     data-product-id="{{ product.id }}"
+    data-product-handle="{{ product.handle | escape }}"
     data-title="{{ title }}"
     data-img="{{ img }}"
     data-img-thumb="{{ img_thumb }}"
@@ -65,13 +81,19 @@
   {{ 'poster-studio.css' | asset_url | stylesheet_tag }}
   <script src="{{ 'poster-studio.js' | asset_url }}" defer></script>
 
+{% else %}
+  <script>
+    console.log('[PosterStudio] liquid embed skipped (not a product page)', {
+      pageType: {{ request.page_type | json }},
+      hasProduct: {% if product != blank %}true{% else %}false{% endif %}
+    });
+  </script>
 {% endif %}
 
 {% schema %}
 {
   "name": "Poster Studio",
   "target": "body",
-  "templates": ["product"],
   "settings": []
 }
 {% endschema %}
