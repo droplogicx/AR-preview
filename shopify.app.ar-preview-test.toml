@@ -2,7 +2,7 @@
 
 client_id = "7a2f1862b0cf332727684e9ae116290f"
 name = "AR Preview test"
-application_url = "https://agenda-did-breath-lewis.trycloudflare.com"
+application_url = "https://ar.appsdroplogicx.uk"
 embedded = true
 
 [build]
@@ -25,10 +25,10 @@ scopes = "read_files,read_products"
 
 [auth]
 redirect_urls = [
-  "https://agenda-did-breath-lewis.trycloudflare.com/api/auth"
+  "https://ar.appsdroplogicx.uk/api/auth"
 ]
 
 [app_proxy]
-url = "https://agenda-did-breath-lewis.trycloudflare.com/proxy"
+url = "https://ar.appsdroplogicx.uk/proxy"
 subpath = "ar-preview"
 prefix = "apps"
