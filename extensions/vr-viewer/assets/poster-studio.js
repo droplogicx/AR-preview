@@ -198,7 +198,7 @@
   var CUSTOM_IMAGE_MAX_DIM = 2048;
   var customImageDataUrlCache = { key: '', dataUrl: '' };
   function customImageDataUrl(img, rawSrc) {
-    if (!img || !img.naturalWidth || !img.naturalHeight) return '';
+    if (!img || !img.complete || !img.naturalWidth || !img.naturalHeight) return '';
     if (customImageDataUrlCache.key === rawSrc) return customImageDataUrlCache.dataUrl;
     var dataUrl = '';
     try {
@@ -207,19 +207,15 @@
       var cw = Math.max(1, Math.round(iw * scale));
       var ch = Math.max(1, Math.round(ih * scale));
       var c = document.createElement('canvas');
-      c.width = cw;
-      c.height = ch;
-      c.getContext('2d').drawImage(img, 0, 0, cw, ch);
+      c.width = cw; c.height = ch;
+      var ctx = c.getContext('2d');
+      ctx.fillStyle = '#ffffff';        // JPEG has no alpha — without this,
+      ctx.fillRect(0, 0, cw, ch);       // transparent pixels render black
+      ctx.drawImage(img, 0, 0, cw, ch);
       dataUrl = c.toDataURL('image/jpeg', 0.92);
-      psLog('customImageDataUrl: snapshotted', {
-        originalPx: iw + 'x' + ih, scaledPx: cw + 'x' + ch, dataUrlKB: Math.round(dataUrl.length / 1024)
-      });
     } catch (e) {
-      psWarn('customImageDataUrl: canvas is tainted (cross-origin image without CORS headers) — ' +
-        'falling back to the raw src, which the 3D engine may fail to (re)fetch. ' +
-        'Fix: serve #custom-product-image with proper CORS headers (Access-Control-Allow-Origin) ' +
-        'and, if it is cross-origin, set crossorigin="anonymous" on the <img> itself.', rawSrc);
-      dataUrl = '';
+      psWarn('customImageDataUrl: canvas tainted', rawSrc);
+      return '';                        // do NOT memoize a failure
     }
     customImageDataUrlCache = { key: rawSrc, dataUrl: dataUrl };
     return dataUrl;
@@ -633,11 +629,8 @@
 
   function isCustomPreviewReady(img) {
     if (!img) return false;
-    var src = imageSrc(img);
-    if (!src) return false;
-    if (img.naturalWidth > 0 && img.naturalHeight > 0) return true;
-    var r = img.getBoundingClientRect();
-    return r.width >= 40 && r.height >= 40;
+    if (!imageSrc(img)) return false;
+    return !!(img.complete && img.naturalWidth > 0 && img.naturalHeight > 0);
   }
 
   function bindCustomPreviewLoad(img) {
